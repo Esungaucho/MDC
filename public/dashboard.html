@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MDC — Pipeline Dashboard</title>
+<style>
+  :root {
+    --navy: #152A45; --ink: #1B2733; --accent: #1F3B5C; --accent-lt: #E7EEF5;
+    --amber: #B7791F; --amber-bg: #FDF3E0; --amber-ink: #8A5A12;
+    --gray: #5B6673; --gray-bg: #EEF0F2; --surface: #F4F5F7; --card: #fff;
+    --border: rgba(21,42,69,0.1);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Helvetica, Arial, sans-serif; background: var(--surface); color: var(--ink); }
+  header { background: var(--navy); color: #fff; padding: 0 28px; height: 64px; display: flex; align-items: center; gap: 16px; }
+  header .logo { font-weight: 700; font-size: 19px; letter-spacing: 0.5px; }
+  header .divider { width: 1px; height: 24px; background: rgba(255,255,255,0.2); }
+  header .sub { line-height: 1.2; }
+  header .sub div:first-child { font-size: 14px; font-weight: 600; }
+  header .sub div:last-child { font-size: 11px; color: rgba(255,255,255,0.55); }
+  header .asof { margin-left: auto; font-size: 12px; color: rgba(255,255,255,0.6); }
+  main { max-width: 1200px; margin: 0 auto; padding: 28px 28px 48px; display: flex; flex-direction: column; gap: 24px; }
+  h2 { font-size: 15px; font-weight: 700; color: var(--navy); margin: 0 0 12px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .tile { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .tile .label { font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: rgba(27,39,51,0.5); }
+  .tile .value { font-size: 26px; font-weight: 700; color: var(--navy); margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .tile .hint { font-size: 11.5px; color: rgba(27,39,51,0.55); margin-top: 2px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px 22px; }
+  .barrow { display: grid; grid-template-columns: 220px 1fr 110px; align-items: center; gap: 12px; padding: 7px 0; font-size: 13px; }
+  .barrow .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .barrow .track { height: 18px; position: relative; }
+  .barrow .bar { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 0 4px 4px 0; min-width: 2px; }
+  .barrow .amt { font-variant-numeric: tabular-nums; color: rgba(27,39,51,0.75); text-align: right; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: rgba(27,39,51,0.5); padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 12px; border-bottom: 1px solid rgba(21,42,69,0.06); vertical-align: top; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .proj-name { font-weight: 600; color: var(--ink); }
+  .proj-code { font-family: 'Courier New', monospace; font-size: 12px; color: rgba(27,39,51,0.55); }
+  .chip { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 10px; padding: 3px 10px; white-space: nowrap; }
+  .chip.open-bid { background: var(--accent-lt); color: var(--accent); }
+  .chip.closed-bid { background: var(--gray-bg); color: var(--gray); }
+  .chip.rfi-open { background: var(--amber-bg); color: var(--amber-ink); }
+  .chip.neutral { background: var(--gray-bg); color: var(--gray); }
+  .muted { color: rgba(27,39,51,0.55); font-size: 12px; }
+  .disc { font-size: 11.5px; color: rgba(27,39,51,0.65); }
+  .reminders { font-size: 11.5px; color: rgba(27,39,51,0.65); line-height: 1.5; white-space: nowrap; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+  .dot.sent { background: var(--accent); }
+  .dot.pending { background: var(--amber); }
+  #error { display: none; background: var(--amber-bg); color: var(--amber-ink); border: 1px solid rgba(183,121,31,0.3); border-radius: 8px; padding: 14px 18px; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">MDC</div>
+  <div class="divider"></div>
+  <div class="sub">
+    <div>Pipeline Dashboard</div>
+    <div>Digital Plan Room — all projects</div>
+  </div>
+  <div class="asof" id="asof"></div>
+</header>
+<main>
+  <div id="error"></div>
+  <section class="tiles" id="tiles"></section>
+  <section class="card">
+    <h2>Bid Value by Project</h2>
+    <div id="bars"></div>
+    <div class="muted" id="bars-empty" style="display:none">No bids with amounts yet.</div>
+  </section>
+  <section class="card">
+    <h2>Projects</h2>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Project</th><th>Bidding</th><th>Go-Hard</th><th>Sheets</th>
+            <th>RFIs</th><th>Bids</th><th>Low Bid</th><th>Trades Covered</th><th>Reminders</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script>
+  const fmtMoney = (cents) => cents == null ? '—'
+    : '$' + Math.round(cents / 100).toLocaleString('en-US');
+  const fmtDate = (iso) => iso == null ? '—'
+    : new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function tile(label, value, hint) {
+    return `<div class="tile"><div class="label">${label}</div><div class="value">${value}</div>` +
+      (hint ? `<div class="hint">${hint}</div>` : '') + `</div>`;
+  }
+
+  function biddingChip(p) {
+    if (p.biddingStatus === 'open') {
+      const d = p.daysToGoHard;
+      return `<span class="chip open-bid">Open — ${d} day${d === 1 ? '' : 's'} left</span>`;
+    }
+    if (p.biddingStatus === 'closed') return '<span class="chip closed-bid">Closed</span>';
+    return '<span class="chip neutral">Not scheduled</span>';
+  }
+
+  function reminderLines(p) {
+    if (!p.reminders.length) return '<span class="muted">—</span>';
+    const names = { one_week: '1-week', final: 'Final' };
+    return p.reminders.map((r) => r.sentAt
+      ? `<div><span class="dot sent"></span>${names[r.kind]} sent ${fmtDate(r.sentAt)} (${r.sentVia})</div>`
+      : `<div><span class="dot pending"></span>${names[r.kind]} scheduled ${fmtDate(r.scheduledFor)}</div>`
+    ).join('');
+  }
+
+  async function load() {
+    let data;
+    try {
+      const res = await fetch('/api/pipeline');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      data = await res.json();
+    } catch (err) {
+      const el = document.getElementById('error');
+      el.style.display = 'block';
+      el.textContent = 'Could not load pipeline data: ' + err.message;
+      return;
+    }
+
+    document.getElementById('asof').textContent = 'As of ' + fmtDate(data.asOf);
+
+    const t = data.totals;
+    document.getElementById('tiles').innerHTML = [
+      tile('Projects', t.projects, `${t.biddingOpen} bidding open`),
+      tile('Plan Sheets', t.sheets, 'across all projects'),
+      tile('Open RFIs', t.openRfis, `${t.totalRfis} total`),
+      tile('Bids Received', t.bidsReceived, ''),
+      tile('Bid Value', fmtMoney(t.bidValueCents), 'all submitted bids'),
+      tile('Awarded', fmtMoney(t.awardedCents), ''),
+    ].join('');
+
+    const withBids = data.projects.filter((p) => p.bids.totalCents);
+    const max = Math.max(...withBids.map((p) => p.bids.totalCents), 1);
+    document.getElementById('bars').innerHTML = withBids.map((p) => `
+      <div class="barrow" title="${esc(p.name)}: ${fmtMoney(p.bids.totalCents)} across ${p.bids.count} bid${p.bids.count === 1 ? '' : 's'}">
+        <div class="name">${esc(p.name)}</div>
+        <div class="track"><div class="bar" style="width:${(p.bids.totalCents / max * 100).toFixed(1)}%"></div></div>
+        <div class="amt">${fmtMoney(p.bids.totalCents)}</div>
+      </div>`).join('');
+    document.getElementById('bars-empty').style.display = withBids.length ? 'none' : 'block';
+
+    document.getElementById('rows').innerHTML = data.projects.map((p) => {
+      const disc = Object.entries(p.sheets.byDiscipline)
+        .map(([d, n]) => `${esc(d)} ${n}`).join(' · ');
+      const rfiChip = p.rfis.open
+        ? `<span class="chip rfi-open">${p.rfis.open} open</span>`
+        : '<span class="chip neutral">0 open</span>';
+      return `<tr>
+        <td><div class="proj-name">${esc(p.name)}</div><div class="proj-code">${esc(p.code)} — ${esc(p.status)}</div></td>
+        <td>${biddingChip(p)}</td>
+        <td class="num">${fmtDate(p.goHardDate)}</td>
+        <td class="num">${p.sheets.total}${p.sheets.superseded ? ` <span class="muted">(${p.sheets.superseded} superseded)</span>` : ''}<div class="disc">${disc}</div></td>
+        <td>${rfiChip}<div class="muted">${p.rfis.answered} answered · ${p.rfis.closed} closed</div></td>
+        <td class="num">${p.bids.count}${p.bids.newVendorBids ? ` <span class="muted">(${p.bids.newVendorBids} new vendor)</span>` : ''}${p.bids.finalList ? `<div class="muted">${p.bids.finalList} on final list</div>` : ''}</td>
+        <td class="num">${fmtMoney(p.bids.lowCents)}</td>
+        <td><div class="disc">${p.bids.tradesCovered.map(esc).join(', ') || '—'}</div></td>
+        <td class="reminders">${reminderLines(p)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  load();
+</script>
+</body>
+</html>

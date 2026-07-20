@@ -1,0 +1,16 @@
+{
+  "name": "mdc-plan-room",
+  "version": "0.1.0",
+  "description": "Backend API and pipeline dashboard for the MDC Digital Plan Room",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "seed": "node --disable-warning=ExperimentalWarning server/seed.js",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
