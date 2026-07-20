@@ -105,6 +105,35 @@
   <div id="page-err" class="err hidden"></div>
   <div id="no-access" class="closed-note hidden">Bidding is available to the GC project team and subcontractors. Switch roles in the top-right to view this section.</div>
 
+  <!-- New Project (PM) -->
+  <section class="card hidden" id="new-proj-card" style="max-width:560px">
+    <h2>New Project</h2>
+    <p class="subtitle" id="new-proj-note" style="margin-bottom:16px">Set up a project to start collecting bids.</p>
+    <form id="new-proj-form" style="display:flex;flex-direction:column;gap:14px">
+      <div class="frow">
+        <div class="field">
+          <label for="np-name">Project Name</label>
+          <input id="np-name" placeholder="e.g. Meridian Office Tower" required>
+        </div>
+        <div class="field narrow">
+          <label for="np-code">Code</label>
+          <input id="np-code" placeholder="e.g. MOT-2026" required>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="field narrow" style="width:200px">
+          <label for="np-gohard">Bids Due / Go-Hard Date</label>
+          <input id="np-gohard" type="date">
+        </div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button type="submit" class="btn primary">Create Project</button>
+        <button type="button" class="btn outline hidden" id="np-cancel" style="padding:10px 18px;font-size:13px">Cancel</button>
+      </div>
+      <div id="np-msg" class="hidden"></div>
+    </form>
+  </section>
+
   <!-- Bid Schedule & Reminders -->
   <section class="card" id="sched-card">
     <div class="sched-head">
@@ -249,12 +278,37 @@
 
   TRADES.forEach((t) => $('trade').insertAdjacentHTML('beforeend', `<option>${esc(t)}</option>`));
 
+  function showNewProject(cancellable) {
+    $('new-proj-card').classList.remove('hidden');
+    $('np-cancel').classList.toggle('hidden', !cancellable);
+    $('new-proj-note').textContent = cancellable
+      ? 'Set up another project to collect bids on.'
+      : 'No projects yet — set up your first project to start collecting bids.';
+    $('sched-card').classList.add('hidden');
+    $('bid-cols').classList.add('hidden');
+  }
+  function hideNewProject() {
+    $('new-proj-card').classList.add('hidden');
+    applyRole();
+  }
+
   async function init() {
     try {
       const projects = await api('GET', '/api/projects');
-      if (!projects.length) throw new Error('No projects found — run the seed.');
+      const isPm = role === 'pm';
       $('project-select').innerHTML = projects
-        .map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+        .map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')
+        + (isPm ? '<option value="__new">+ New Project…</option>' : '');
+      if (!projects.length) {
+        if (isPm) showNewProject(false);
+        else {
+          $('page-err').textContent = 'No projects are open for bidding yet. Check back soon.';
+          $('page-err').classList.remove('hidden');
+          $('sched-card').classList.add('hidden');
+          $('bid-cols').classList.add('hidden');
+        }
+        return;
+      }
       const fromHash = Number(location.hash.replace('#project-', ''));
       projectId = projects.some((p) => p.id === fromHash) ? fromHash : projects[0].id;
       $('project-select').value = projectId;
@@ -264,6 +318,26 @@
       $('page-err').classList.remove('hidden');
     }
   }
+
+  $('new-proj-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const proj = await api('POST', '/api/projects', {
+        name: $('np-name').value,
+        code: $('np-code').value,
+        goHardDate: $('np-gohard').value || undefined,
+      });
+      ['np-name', 'np-code', 'np-gohard'].forEach((id) => { $(id).value = ''; });
+      hideNewProject();
+      location.hash = `project-${proj.id}`;
+      await init();
+    } catch (err) {
+      const el = $('np-msg');
+      el.className = 'err';
+      el.textContent = err.message;
+    }
+  });
+  $('np-cancel').addEventListener('click', () => { hideNewProject(); init(); });
 
   async function loadProject() {
     project = await api('GET', `/api/projects/${projectId}`);
@@ -404,8 +478,13 @@
 
   // --- PM controls ---
   $('project-select').addEventListener('change', async (e) => {
+    if (e.target.value === '__new') {
+      showNewProject(true);
+      return;
+    }
     projectId = Number(e.target.value);
     hideMsg();
+    hideNewProject();
     await loadProject();
   });
   $('gohard').addEventListener('change', async (e) => {

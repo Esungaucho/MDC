@@ -7,10 +7,9 @@ revisions, RFIs with sheet pins, the subcontractor directory, bid submittals,
 and bid-schedule reminders — and rolls everything up into a portfolio-level
 pipeline dashboard.
 
-Zero runtime dependencies: Node's built-in HTTP server and `node:sqlite`.
 Requires **Node ≥ 22.5**.
 
-## Quick start
+## Quick start (local)
 
 ```bash
 npm run seed    # load the demo portfolio (3 projects; --force wipes and reseeds)
@@ -18,8 +17,19 @@ npm start       # API on http://localhost:4000 (override with PORT)
 npm test        # run the API test suite
 ```
 
-Open **http://localhost:4000/dashboard** for the pipeline dashboard.
-The SQLite database lives at `data/planroom.db` (override with `MDC_DB`).
+Open **http://localhost:4000/dashboard** for the pipeline dashboard and
+**/bidding** for the bidding section.
+
+## Storage
+
+One async storage API (`server/db.js`), two backends:
+
+- **Postgres (Neon)** — production. Selected automatically when `DATABASE_URL`
+  is set (the Neon integration in Vercel's Storage tab sets it). Production
+  never seeds demo data; the schema is created on first request.
+- **SQLite (`node:sqlite`)** — local dev and tests, zero dependencies. The
+  database lives at `data/planroom.db` (override with `MDC_DB`). The deployed
+  no-database demo mode uses SQLite in `/tmp`, self-seeded on cold start.
 
 ## Data model
 
@@ -40,6 +50,8 @@ All bodies are JSON. Errors return `{ error, message, details? }`.
 - `GET /api/projects` · `POST /api/projects` `{name, code, status?, goHardDate?, remindersAutomated?}`
 - `GET /api/projects/:id` (includes reminders + counts) · `PATCH /api/projects/:id`
   — changing `goHardDate` reschedules unsent reminders
+- `DELETE /api/projects/:id` — removes the project and its sheets, RFIs, bids,
+  and reminders (companies are shared and stay)
 - `GET /api/projects/:id/reminders`
 - `POST /api/reminders/:id/send` — manual "Send Now" (409 if already sent)
 - `POST /api/reminders/run` — idempotent automation sweep; point a daily cron

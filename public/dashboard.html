@@ -96,6 +96,9 @@
 </header>
 <main>
   <div id="error"></div>
+  <div id="empty-note" style="display:none;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px 18px;font-size:13px;color:rgba(27,39,51,0.7)">
+    No projects in the pipeline yet. Head to the <a href="/bidding">Bidding</a> tab to create your first project.
+  </div>
   <section class="tiles" id="tiles"></section>
   <section class="pies">
     <div class="pie-card">
@@ -231,6 +234,7 @@
     }
 
     document.getElementById('asof').textContent = 'As of ' + fmtDate(data.asOf);
+    document.getElementById('empty-note').style.display = data.totals.projects === 0 ? 'block' : 'none';
 
     const t = data.totals;
     document.getElementById('tiles').innerHTML = [
