@@ -96,6 +96,22 @@ function buildPipeline(db) {
     };
   });
 
+  // Portfolio-wide compositions for the dashboard's part-to-whole charts.
+  const breakdowns = {
+    bidValueByTrade: db.prepare(`
+      SELECT trade, COUNT(*) count, COALESCE(SUM(amount_cents), 0) totalCents
+      FROM bids GROUP BY trade ORDER BY totalCents DESC, trade
+    `).all().map((r) => ({ trade: r.trade, count: r.count, totalCents: r.totalCents })),
+    sheetsByDiscipline: db.prepare(`
+      SELECT discipline, COUNT(*) count FROM sheets GROUP BY discipline ORDER BY count DESC, discipline
+    `).all().map((r) => ({ discipline: r.discipline, count: r.count })),
+    rfisByStatus: {
+      open: projects.reduce((n, p) => n + p.rfis.open, 0),
+      answered: projects.reduce((n, p) => n + p.rfis.answered, 0),
+      closed: projects.reduce((n, p) => n + p.rfis.closed, 0),
+    },
+  };
+
   const totals = {
     projects: projects.length,
     biddingOpen: projects.filter((p) => p.biddingStatus === 'open').length,
@@ -107,7 +123,7 @@ function buildPipeline(db) {
     awardedCents: projects.reduce((n, p) => n + p.bids.awardedCents, 0),
   };
 
-  return { asOf, totals, projects };
+  return { asOf, totals, breakdowns, projects };
 }
 
 function register(app, db) {

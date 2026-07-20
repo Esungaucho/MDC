@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MDC — Bidding</title>
+<style>
+  :root {
+    --navy: #152A45; --ink: #1B2733; --accent: #1F3B5C; --accent-lt: #E7EEF5;
+    --amber: #B7791F; --amber-bg: #FDF3E0; --amber-ink: #8A5A12;
+    --gray: #5B6673; --gray-bg: #EEF0F2; --surface: #F4F5F7; --card: #fff;
+    --border: rgba(21,42,69,0.1); --input-border: rgba(21,42,69,0.18);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Helvetica, Arial, sans-serif; background: var(--surface); color: var(--ink); }
+  header { background: var(--navy); color: #fff; padding: 0 28px; height: 64px; display: flex; align-items: center; gap: 16px; }
+  header .logo { font-weight: 700; font-size: 19px; letter-spacing: 0.5px; }
+  header .divider { width: 1px; height: 24px; background: rgba(255,255,255,0.2); }
+  header .sub { line-height: 1.2; }
+  header .sub div:first-child { font-size: 14px; font-weight: 600; }
+  header .sub div:last-child { font-size: 11px; color: rgba(255,255,255,0.55); }
+  header nav { display: flex; gap: 6px; margin-left: 16px; }
+  header nav a { color: #fff; text-decoration: none; font-size: 13px; font-weight: 600; padding: 8px 16px; border-radius: 6px; }
+  header nav a.active { background: rgba(255,255,255,0.15); }
+  header nav a:hover { background: rgba(255,255,255,0.1); }
+  header select { margin-left: auto; max-width: 280px; background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; padding: 6px 10px; font-size: 12px; }
+  header .sub { white-space: nowrap; }
+  header select option { color: #000; }
+  main { max-width: 1200px; margin: 0 auto; padding: 28px 28px 48px; display: flex; flex-direction: column; gap: 24px; }
+  h2 { font-size: 15px; font-weight: 700; color: var(--navy); margin: 0; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 22px; }
+  .cols { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; }
+  .col-form { flex: none; width: 520px; max-width: 100%; }
+  .col-side { flex: 1; min-width: 320px; display: flex; flex-direction: column; gap: 24px; }
+  label { font-size: 12px; font-weight: 600; color: rgba(27,39,51,0.7); }
+  input, select, textarea { border: 1px solid var(--input-border); border-radius: 6px; padding: 9px 11px; font-size: 13px; font-family: inherit; width: 100%; }
+  textarea { resize: vertical; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .frow { display: flex; gap: 12px; }
+  .frow .field { flex: 1; }
+  .frow .field.narrow { flex: none; width: 160px; }
+  .chip { display: inline-block; font-size: 11.5px; font-weight: 700; border-radius: 10px; padding: 4px 12px; white-space: nowrap; }
+  .chip.open-bid { background: var(--accent-lt); color: var(--accent); }
+  .chip.closed-bid { background: var(--gray-bg); color: var(--gray); }
+  .banner { font-size: 12px; font-weight: 600; border-radius: 6px; padding: 8px 11px; }
+  .banner.ok { color: var(--accent); background: var(--accent-lt); }
+  .banner.warn { color: var(--amber-ink); background: var(--amber-bg); }
+  .docs-box { background: var(--amber-bg); border: 1px solid rgba(183,121,31,0.3); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .docs-box .note { font-size: 12.5px; color: var(--amber-ink); line-height: 1.5; }
+  .doc-toggle { display: flex; align-items: center; gap: 10px; border: 1.5px dashed rgba(183,121,31,0.4); background: #fff; color: var(--amber-ink); border-radius: 6px; padding: 10px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; width: 100%; text-align: left; font-family: inherit; }
+  .doc-toggle.on { border-color: var(--accent); background: var(--accent-lt); color: var(--accent); }
+  .btn { border: none; border-radius: 6px; padding: 10px 18px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .btn.primary { background: var(--navy); color: #fff; }
+  .btn.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn.outline { background: #fff; border: 1px solid var(--input-border); color: var(--ink); padding: 5px 12px; font-size: 12px; }
+  .btn.outline.on { border-color: var(--accent); background: var(--accent-lt); color: var(--accent); }
+  .reminder-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: var(--surface); border-radius: 6px; }
+  .reminder-row .t { font-size: 13px; font-weight: 600; }
+  .reminder-row .s { font-size: 12px; color: rgba(27,39,51,0.6); margin-top: 2px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: rgba(27,39,51,0.5); padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 12px 10px; border-bottom: 1px solid rgba(21,42,69,0.06); vertical-align: middle; }
+  .muted { color: rgba(27,39,51,0.5); font-size: 12.5px; }
+  .status-chip { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 10px; padding: 3px 10px; white-space: nowrap; }
+  .status-chip.dir { background: var(--accent-lt); color: var(--accent); }
+  .status-chip.new { background: var(--amber-bg); color: var(--amber-ink); }
+  .closed-note { background: var(--gray-bg); border: 1px solid rgba(21,42,69,0.15); border-radius: 8px; padding: 16px; font-size: 13px; color: var(--gray); line-height: 1.5; }
+  .success { font-size: 12.5px; color: var(--accent); background: var(--accent-lt); border-radius: 6px; padding: 9px 11px; }
+  .err { font-size: 12.5px; color: var(--amber-ink); background: var(--amber-bg); border-radius: 6px; padding: 9px 11px; }
+  .subtitle { font-size: 13px; color: rgba(27,39,51,0.6); margin: 4px 0 0; }
+  .sched-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .sched-controls { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 18px; }
+  .rem-list { display: flex; flex-direction: column; gap: 10px; }
+  .final-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid rgba(21,42,69,0.06); }
+  .final-row .info { display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">MDC</div>
+  <div class="divider"></div>
+  <div class="sub">
+    <div>Bidding</div>
+    <div>Digital Plan Room</div>
+  </div>
+  <nav>
+    <a href="/dashboard">Pipeline</a>
+    <a href="/bidding" class="active">Bidding</a>
+  </nav>
+  <select id="project-select" title="Project"></select>
+</header>
+<main>
+  <div id="page-err" class="err hidden"></div>
+
+  <!-- Bid Schedule & Reminders -->
+  <section class="card">
+    <div class="sched-head">
+      <h2>Bid Schedule &amp; Reminders</h2>
+      <span id="bidding-chip"></span>
+    </div>
+    <div class="sched-controls">
+      <div class="field" style="width:200px">
+        <label for="gohard">Bids Due / Go-Hard Date</label>
+        <input type="date" id="gohard">
+      </div>
+      <button class="btn outline" id="auto-toggle" style="height:38px"></button>
+    </div>
+    <div class="rem-list" id="reminders"></div>
+  </section>
+
+  <div class="cols">
+    <!-- Submit a Bid -->
+    <section class="card col-form">
+      <h2 style="font-size:18px">Submit a Bid</h2>
+      <p class="subtitle" id="bid-subtitle"></p>
+      <div id="closed-note" class="closed-note hidden" style="margin-top:16px"></div>
+      <form id="bid-form" style="display:flex;flex-direction:column;gap:14px;margin-top:20px">
+        <div class="frow">
+          <div class="field">
+            <label for="company">Company Name</label>
+            <input id="company" placeholder="e.g. Summit Concrete Co." autocomplete="organization">
+          </div>
+          <div class="field narrow">
+            <label for="trade">Trade</label>
+            <select id="trade"></select>
+          </div>
+        </div>
+        <div id="dir-banner" class="banner hidden"></div>
+        <div class="frow">
+          <div class="field">
+            <label for="contact">Contact Name</label>
+            <input id="contact" placeholder="Full name">
+          </div>
+          <div class="field">
+            <label for="email">Email</label>
+            <input id="email" type="email" placeholder="name@company.com">
+          </div>
+        </div>
+        <div class="frow">
+          <div class="field">
+            <label for="phone">Phone</label>
+            <input id="phone" placeholder="(555) 555-0100">
+          </div>
+          <div class="field narrow">
+            <label for="amount">Bid Amount</label>
+            <input id="amount" placeholder="$0.00">
+          </div>
+        </div>
+        <div class="field">
+          <label for="notes">Notes</label>
+          <textarea id="notes" rows="3" placeholder="Scope clarifications, exclusions, alternates..."></textarea>
+        </div>
+        <div id="docs-box" class="docs-box hidden">
+          <div class="note"><strong id="docs-company"></strong> isn't in our subcontractor directory yet. To be added and considered for award, please submit the following before your bid is finalized.</div>
+          <button type="button" class="doc-toggle" id="w9-toggle"></button>
+          <button type="button" class="doc-toggle" id="coi-toggle"></button>
+        </div>
+        <button type="submit" class="btn primary" id="submit-bid" style="padding:11px 18px;font-size:13.5px">Submit Bid</button>
+        <div id="bid-msg" class="hidden"></div>
+      </form>
+    </section>
+
+    <div class="col-side">
+      <!-- Submitted Bids -->
+      <section>
+        <h2 style="margin-bottom:12px">Submitted Bids</h2>
+        <div class="card" style="padding:6px 16px">
+          <table>
+            <thead><tr><th>Company</th><th>Trade</th><th>Amount</th><th>Directory Status</th><th></th></tr></thead>
+            <tbody id="bids-body"></tbody>
+          </table>
+          <div id="no-bids" class="muted hidden" style="text-align:center;padding:32px 0">No bids submitted yet.</div>
+        </div>
+      </section>
+
+      <!-- Final Bid List -->
+      <section class="card">
+        <h2>Final Bid List</h2>
+        <p class="subtitle" style="margin-bottom:10px">Selections carried over from submitted bids for award consideration.</p>
+        <div id="final-list"></div>
+        <div id="no-final" class="muted hidden" style="padding:8px 0">No bids selected yet — add from Submitted Bids.</div>
+      </section>
+    </div>
+  </div>
+</main>
+<script>
+  const TRADES = ['Concrete', 'Steel', 'Mechanical', 'Electrical', 'Plumbing', 'Glazing', 'Roofing', 'Site Work', 'Other'];
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmtMoney = (cents) => cents == null ? '—' : '$' + Math.round(cents / 100).toLocaleString('en-US');
+  const fmtDate = (iso) => iso == null ? '—'
+    : new Date(String(iso).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const $ = (id) => document.getElementById(id);
+
+  const api = async (method, path, body) => {
+    const res = await fetch(path, {
+      method,
+      headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) { const e = new Error(data?.message || res.statusText); e.data = data; throw e; }
+    return data;
+  };
+
+  let projectId = null;
+  let project = null;
+  let dirState = { known: false, inDirectory: false }; // last /companies/check result
+  let w9 = false, coi = false;
+
+  TRADES.forEach((t) => $('trade').insertAdjacentHTML('beforeend', `<option>${esc(t)}</option>`));
+
+  async function init() {
+    try {
+      const projects = await api('GET', '/api/projects');
+      if (!projects.length) throw new Error('No projects found — run the seed.');
+      $('project-select').innerHTML = projects
+        .map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+      const fromHash = Number(location.hash.replace('#project-', ''));
+      projectId = projects.some((p) => p.id === fromHash) ? fromHash : projects[0].id;
+      $('project-select').value = projectId;
+      await loadProject();
+    } catch (err) {
+      $('page-err').textContent = 'Could not load: ' + err.message;
+      $('page-err').classList.remove('hidden');
+    }
+  }
+
+  async function loadProject() {
+    project = await api('GET', `/api/projects/${projectId}`);
+    location.hash = `project-${projectId}`;
+
+    $('gohard').value = project.goHardDate || '';
+    $('bidding-chip').innerHTML = project.biddingOpen
+      ? '<span class="chip open-bid">Bidding Open</span>'
+      : '<span class="chip closed-bid">Bidding Closed</span>';
+    const auto = $('auto-toggle');
+    auto.textContent = `⚙ Automated Reminders: ${project.remindersAutomated ? 'On' : 'Off'}`;
+    auto.classList.toggle('on', project.remindersAutomated);
+
+    $('reminders').innerHTML = project.reminders.map((r) => {
+      const status = r.sentAt
+        ? `Sent ${r.sentVia === 'auto' ? 'automatically' : 'manually'} — ${fmtDate(r.sentAt)}`
+        : `Scheduled for ${fmtDate(r.scheduledFor)}${project.remindersAutomated ? ' (automated)' : ' — automation off'}`;
+      return `<div class="reminder-row">
+        <div><div class="t">${esc(r.label)}</div><div class="s">${esc(status)}</div></div>
+        <button class="btn primary" style="padding:7px 14px;font-size:12px" data-send="${r.id}" ${r.sentAt ? 'disabled style="padding:7px 14px;font-size:12px;opacity:0.45;cursor:not-allowed"' : ''}>Send Now</button>
+      </div>`;
+    }).join('') || '<div class="muted">Set a go-hard date to schedule reminders.</div>';
+
+    $('bid-subtitle').textContent = project.goHardDate
+      ? `${project.name} — bids due ${fmtDate(project.goHardDate)} (go-hard date). No submittals accepted after this date.`
+      : `${project.name} — no go-hard date set yet.`;
+    $('bid-form').classList.toggle('hidden', !project.biddingOpen);
+    $('closed-note').classList.toggle('hidden', project.biddingOpen);
+    if (!project.biddingOpen) {
+      $('closed-note').textContent = project.goHardDate
+        ? `Bidding closed on the go-hard date (${fmtDate(project.goHardDate)}). New bid submittals can no longer be entered.`
+        : 'Bidding is not open — no go-hard date has been set for this project.';
+    }
+    await loadBids();
+  }
+
+  async function loadBids() {
+    const bids = await api('GET', `/api/projects/${projectId}/bids`);
+    const rows = bids.filter((b) => b.status !== 'declined');
+    $('bids-body').innerHTML = rows.map((b) => {
+      const inFinal = b.status === 'final_list' || b.status === 'awarded';
+      const chip = b.company.inDirectory
+        ? '<span class="status-chip dir">Directory Verified</span>'
+        : '<span class="status-chip new">New Vendor — Docs Received</span>';
+      const btn = b.status === 'awarded'
+        ? '<span class="status-chip dir">Awarded</span>'
+        : `<button class="btn outline ${inFinal ? 'on' : ''}" data-final="${b.id}" data-on="${inFinal}">${inFinal ? '✓ In Final List' : 'Add to Final'}</button>`;
+      return `<tr>
+        <td>${esc(b.company.name)}</td>
+        <td class="muted">${esc(b.trade)}</td>
+        <td>${fmtMoney(b.amountCents)}</td>
+        <td>${chip}</td>
+        <td style="text-align:right">${btn}</td>
+      </tr>`;
+    }).join('');
+    $('no-bids').classList.toggle('hidden', rows.length > 0);
+
+    const finals = bids.filter((b) => b.status === 'final_list' || b.status === 'awarded');
+    $('final-list').innerHTML = finals.map((b) => `
+      <div class="final-row">
+        <div class="info">
+          <strong>${esc(b.company.name)}</strong>
+          <span class="muted">${esc(b.trade)}</span>
+          <span class="muted">${fmtMoney(b.amountCents)}</span>
+          ${b.status === 'awarded' ? '<span class="status-chip dir">Awarded</span>' : ''}
+        </div>
+        ${b.status === 'awarded' ? '' : `<button class="btn outline" data-remove="${b.id}">Remove</button>`}
+      </div>`).join('');
+    $('no-final').classList.toggle('hidden', finals.length > 0);
+  }
+
+  // --- Directory check as the company name is typed ---
+  let checkTimer;
+  function refreshDocsUi() {
+    const name = $('company').value.trim();
+    const needsDocs = name.length > 0 && !dirState.inDirectory;
+    $('dir-banner').classList.toggle('hidden', name.length === 0);
+    if (name.length > 0) {
+      $('dir-banner').className = 'banner ' + (dirState.inDirectory ? 'ok' : 'warn');
+      $('dir-banner').textContent = dirState.inDirectory
+        ? `✓ ${name} is in our subcontractor directory`
+        : 'New subcontractor — not yet in our directory';
+    }
+    $('docs-box').classList.toggle('hidden', !needsDocs);
+    $('docs-company').textContent = name;
+    $('w9-toggle').textContent = w9 ? '✓ W-9 attached' : '＋ Attach W-9 (click to simulate upload)';
+    $('w9-toggle').classList.toggle('on', w9);
+    $('coi-toggle').textContent = coi ? '✓ Certificate of Insurance attached' : '＋ Attach Certificate of Insurance (click to simulate upload)';
+    $('coi-toggle').classList.toggle('on', coi);
+    $('submit-bid').disabled = !name || (needsDocs && !(w9 && coi));
+  }
+  $('company').addEventListener('input', () => {
+    clearTimeout(checkTimer);
+    const name = $('company').value.trim();
+    hideMsg();
+    if (!name) { dirState = { known: false, inDirectory: false }; refreshDocsUi(); return; }
+    checkTimer = setTimeout(async () => {
+      try { dirState = await api('GET', `/api/companies/check?name=${encodeURIComponent(name)}`); }
+      catch { dirState = { known: false, inDirectory: false }; }
+      refreshDocsUi();
+    }, 250);
+    refreshDocsUi();
+  });
+  $('w9-toggle').addEventListener('click', () => { w9 = !w9; refreshDocsUi(); });
+  $('coi-toggle').addEventListener('click', () => { coi = !coi; refreshDocsUi(); });
+
+  function showMsg(text, ok) {
+    const el = $('bid-msg');
+    el.className = ok ? 'success' : 'err';
+    el.textContent = text;
+  }
+  function hideMsg() { $('bid-msg').className = 'hidden'; }
+
+  $('bid-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await api('POST', `/api/projects/${projectId}/bids`, {
+        company: $('company').value,
+        trade: $('trade').value,
+        contactName: $('contact').value || undefined,
+        email: $('email').value || undefined,
+        phone: $('phone').value || undefined,
+        amount: $('amount').value || undefined,
+        notes: $('notes').value || undefined,
+        w9Uploaded: w9 || undefined,
+        coiUploaded: coi || undefined,
+      });
+      ['company', 'contact', 'email', 'phone', 'amount', 'notes'].forEach((id) => { $(id).value = ''; });
+      w9 = false; coi = false; dirState = { known: false, inDirectory: false };
+      refreshDocsUi();
+      showMsg("Bid received. You'll be notified of any addenda or award decisions by email.", true);
+      await loadBids();
+    } catch (err) {
+      showMsg(err.message, false);
+      if (err.data?.error === 'bidding_closed') await loadProject();
+    }
+  });
+
+  // --- PM controls ---
+  $('project-select').addEventListener('change', async (e) => {
+    projectId = Number(e.target.value);
+    hideMsg();
+    await loadProject();
+  });
+  $('gohard').addEventListener('change', async (e) => {
+    if (!e.target.value) return;
+    await api('PATCH', `/api/projects/${projectId}`, { goHardDate: e.target.value });
+    await loadProject();
+  });
+  $('auto-toggle').addEventListener('click', async () => {
+    await api('PATCH', `/api/projects/${projectId}`, { remindersAutomated: !project.remindersAutomated });
+    await loadProject();
+  });
+  $('reminders').addEventListener('click', async (e) => {
+    const id = e.target.dataset?.send;
+    if (!id) return;
+    try { await api('POST', `/api/reminders/${id}/send`); await loadProject(); }
+    catch (err) { alert(err.message); }
+  });
+  document.querySelector('.col-side').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.dataset.final) {
+      await api('PATCH', `/api/bids/${btn.dataset.final}`, {
+        status: btn.dataset.on === 'true' ? 'submitted' : 'final_list',
+      });
+      await loadBids();
+    } else if (btn.dataset.remove) {
+      await api('PATCH', `/api/bids/${btn.dataset.remove}`, { status: 'submitted' });
+      await loadBids();
+    }
+  });
+
+  refreshDocsUi();
+  init();
+</script>
+</body>
+</html>

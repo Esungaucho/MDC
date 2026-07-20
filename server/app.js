@@ -20,14 +20,15 @@ function buildApp(db) {
   require('./routes/bids').register(app, db);
   require('./routes/pipeline').register(app, db);
 
-  // Pipeline dashboard (static page that renders GET /api/pipeline).
-  const dashboard = ({ res }) => {
-    const html = fs.readFileSync(path.join(PUBLIC_DIR, 'dashboard.html'));
+  // Static pages: pipeline dashboard and the bidding section.
+  const page = (file) => ({ res }) => {
+    const html = fs.readFileSync(path.join(PUBLIC_DIR, file));
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
   };
-  app.get('/', dashboard);
-  app.get('/dashboard', dashboard);
+  app.get('/', page('dashboard.html'));
+  app.get('/dashboard', page('dashboard.html'));
+  app.get('/bidding', page('bidding.html'));
 
   return app;
 }

@@ -3,6 +3,7 @@
   "rewrites": [
     { "source": "/", "destination": "/dashboard.html" },
     { "source": "/dashboard", "destination": "/dashboard.html" },
+    { "source": "/bidding", "destination": "/bidding.html" },
     { "source": "/api/:path*", "destination": "/api/index" }
   ]
 }

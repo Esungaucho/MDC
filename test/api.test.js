@@ -82,6 +82,13 @@ test('pipeline rolls up all projects', async () => {
 
   const hmp = body.projects.find((p) => p.code === 'HMP-2026');
   assert.equal(hmp.bids.newVendorBids, 1); // Northgate Roofing
+
+  // Portfolio-wide breakdowns for the composition charts.
+  assert.deepEqual(body.breakdowns.bidValueByTrade[0],
+    { trade: 'Concrete', count: 2, totalCents: 709_500_000 });
+  assert.equal(body.breakdowns.bidValueByTrade.length, 4);
+  assert.deepEqual(body.breakdowns.sheetsByDiscipline[0], { discipline: 'Architectural', count: 7 });
+  assert.deepEqual(body.breakdowns.rfisByStatus, { open: 2, answered: 1, closed: 1 });
 });
 
 test('seed refuses to run twice without force', () => {

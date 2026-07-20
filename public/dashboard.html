@@ -19,6 +19,10 @@
   header .sub { line-height: 1.2; }
   header .sub div:first-child { font-size: 14px; font-weight: 600; }
   header .sub div:last-child { font-size: 11px; color: rgba(255,255,255,0.55); }
+  header nav { display: flex; gap: 6px; margin-left: 16px; }
+  header nav a { color: #fff; text-decoration: none; font-size: 13px; font-weight: 600; padding: 8px 16px; border-radius: 6px; }
+  header nav a.active { background: rgba(255,255,255,0.15); }
+  header nav a:hover { background: rgba(255,255,255,0.1); }
   header .asof { margin-left: auto; font-size: 12px; color: rgba(255,255,255,0.6); }
   main { max-width: 1200px; margin: 0 auto; padding: 28px 28px 48px; display: flex; flex-direction: column; gap: 24px; }
   h2 { font-size: 15px; font-weight: 700; color: var(--navy); margin: 0 0 12px; }
@@ -52,6 +56,14 @@
   .dot.sent { background: var(--accent); }
   .dot.pending { background: var(--amber); }
   #error { display: none; background: var(--amber-bg); color: var(--amber-ink); border: 1px solid rgba(183,121,31,0.3); border-radius: 8px; padding: 14px 18px; font-size: 13px; }
+  .pies { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+  .pie-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px 22px; }
+  .pie-body { display: flex; align-items: center; gap: 18px; }
+  .pie-legend { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; font-size: 12.5px; }
+  .pie-legend .row { display: flex; align-items: flex-start; gap: 8px; }
+  .pie-legend .sw { width: 11px; height: 11px; border-radius: 3px; flex: none; margin-top: 3px; }
+  .pie-legend .lbl { font-weight: 600; }
+  .pie-legend .val { color: rgba(27,39,51,0.6); font-variant-numeric: tabular-nums; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -62,11 +74,29 @@
     <div>Pipeline Dashboard</div>
     <div>Digital Plan Room — all projects</div>
   </div>
+  <nav>
+    <a href="/dashboard" class="active">Pipeline</a>
+    <a href="/bidding">Bidding</a>
+  </nav>
   <div class="asof" id="asof"></div>
 </header>
 <main>
   <div id="error"></div>
   <section class="tiles" id="tiles"></section>
+  <section class="pies">
+    <div class="pie-card">
+      <h2>Bid Value by Trade</h2>
+      <div class="pie-body" id="pie-trade"></div>
+    </div>
+    <div class="pie-card">
+      <h2>Sheets by Discipline</h2>
+      <div class="pie-body" id="pie-discipline"></div>
+    </div>
+    <div class="pie-card">
+      <h2>RFI Status</h2>
+      <div class="pie-body" id="pie-rfi"></div>
+    </div>
+  </section>
   <section class="card">
     <h2>Bid Value by Project</h2>
     <div id="bars"></div>
@@ -94,6 +124,61 @@
     : new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // Categorical slots from a CVD-validated palette (adjacent-pair safe in this
+  // order); "Other" is always neutral gray. Status colors are the brand chips.
+  const CAT = ['#2a78d6', '#008300', '#e87ba4', '#eda100', '#1baf7a', '#eb6834'];
+  const OTHER = '#8b93a0';
+  const STATUS = { open: '#B7791F', answered: '#1F3B5C', closed: '#5B6673' };
+
+  // Renders a donut + legend into el. items: [{label, value, color}], values >= 0.
+  function donut(el, items, fmt) {
+    const data = items.filter((d) => d.value > 0);
+    const total = data.reduce((n, d) => n + d.value, 0);
+    if (!total) {
+      el.innerHTML = '<div class="muted">No data yet.</div>';
+      return;
+    }
+    const R = 60, HOLE = 34, C = 70;
+    const pt = (angle, r) => [C + r * Math.sin(angle), C - r * Math.cos(angle)];
+    let angle = 0;
+    const slices = data.map((d) => {
+      const frac = d.value / total;
+      const a0 = angle, a1 = angle + frac * 2 * Math.PI;
+      angle = a1;
+      const pct = Math.round(frac * 100);
+      const tip = `${d.label}: ${fmt(d.value)} (${pct}%)`;
+      if (data.length === 1) {
+        return `<circle cx="${C}" cy="${C}" r="${R}" fill="${d.color}" stroke="#fff" stroke-width="2"><title>${esc(tip)}</title></circle>`;
+      }
+      const [x0, y0] = pt(a0, R);
+      const [x1, y1] = pt(a1, R);
+      const large = frac > 0.5 ? 1 : 0;
+      return `<path d="M ${C} ${C} L ${x0.toFixed(2)} ${y0.toFixed(2)} A ${R} ${R} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z" fill="${d.color}" stroke="#fff" stroke-width="2"><title>${esc(tip)}</title></path>`;
+    }).join('');
+    const legend = data.map((d) => `
+      <div class="row">
+        <span class="sw" style="background:${d.color}"></span>
+        <div><div class="lbl">${esc(d.label)}</div>
+        <div class="val">${fmt(d.value)} · ${Math.round(d.value / total * 100)}%</div></div>
+      </div>`).join('');
+    el.innerHTML = `
+      <svg width="140" height="140" viewBox="0 0 140 140" role="img" aria-label="Composition chart">
+        ${slices}
+        <circle cx="${C}" cy="${C}" r="${HOLE}" fill="#fff"/>
+      </svg>
+      <div class="pie-legend">${legend}</div>`;
+  }
+
+  // Assign categorical slots in fixed order; fold everything past 5 into "Other".
+  function slotted(items) {
+    const top = items.slice(0, 5).map((d, i) => ({ ...d, color: CAT[i] }));
+    const rest = items.slice(5);
+    if (rest.length) {
+      top.push({ label: 'Other', value: rest.reduce((n, d) => n + d.value, 0), color: OTHER });
+    }
+    return top;
+  }
 
   function tile(label, value, hint) {
     return `<div class="tile"><div class="label">${label}</div><div class="value">${value}</div>` +
@@ -142,6 +227,19 @@
       tile('Bid Value', fmtMoney(t.bidValueCents), 'all submitted bids'),
       tile('Awarded', fmtMoney(t.awardedCents), ''),
     ].join('');
+
+    const b = data.breakdowns;
+    donut(document.getElementById('pie-trade'),
+      slotted(b.bidValueByTrade.map((t) => ({ label: t.trade, value: t.totalCents }))),
+      fmtMoney);
+    donut(document.getElementById('pie-discipline'),
+      slotted(b.sheetsByDiscipline.map((d) => ({ label: d.discipline, value: d.count }))),
+      String);
+    donut(document.getElementById('pie-rfi'), [
+      { label: 'Open', value: b.rfisByStatus.open, color: STATUS.open },
+      { label: 'Answered', value: b.rfisByStatus.answered, color: STATUS.answered },
+      { label: 'Closed', value: b.rfisByStatus.closed, color: STATUS.closed },
+    ], String);
 
     const withBids = data.projects.filter((p) => p.bids.totalCents);
     const max = Math.max(...withBids.map((p) => p.bids.totalCents), 1);
