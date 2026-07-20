@@ -23,7 +23,9 @@
   header nav a { color: #fff; text-decoration: none; font-size: 13px; font-weight: 600; padding: 8px 16px; border-radius: 6px; }
   header nav a.active { background: rgba(255,255,255,0.15); }
   header nav a:hover { background: rgba(255,255,255,0.1); }
-  header select { margin-left: auto; max-width: 280px; background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; padding: 6px 10px; font-size: 12px; }
+  header select { background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; padding: 6px 10px; font-size: 12px; max-width: 240px; }
+  header .right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  header .avatar { width: 32px; height: 32px; border-radius: 50%; background: #3D6EA6; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex: none; }
   header .sub { white-space: nowrap; }
   header select option { color: #000; }
   main { max-width: 1200px; margin: 0 auto; padding: 28px 28px 48px; display: flex; flex-direction: column; gap: 24px; }
@@ -88,13 +90,23 @@
     <a href="/dashboard">Pipeline</a>
     <a href="/bidding" class="active">Bidding</a>
   </nav>
-  <select id="project-select" title="Project"></select>
+  <div class="right">
+    <select id="project-select" title="Project"></select>
+    <select id="role-select" title="Role">
+      <option value="pm">GC Project Manager</option>
+      <option value="sub">Subcontractor</option>
+      <option value="architect">Architect / Engineer</option>
+      <option value="owner">Owner / Client</option>
+    </select>
+    <div class="avatar" id="avatar"></div>
+  </div>
 </header>
 <main>
   <div id="page-err" class="err hidden"></div>
+  <div id="no-access" class="closed-note hidden">Bidding is available to the GC project team and subcontractors. Switch roles in the top-right to view this section.</div>
 
   <!-- Bid Schedule & Reminders -->
-  <section class="card">
+  <section class="card" id="sched-card">
     <div class="sched-head">
       <h2>Bid Schedule &amp; Reminders</h2>
       <span id="bidding-chip"></span>
@@ -109,7 +121,7 @@
     <div class="rem-list" id="reminders"></div>
   </section>
 
-  <div class="cols">
+  <div class="cols" id="bid-cols">
     <!-- Submit a Bid -->
     <section class="card col-form">
       <h2 style="font-size:18px">Submit a Bid</h2>
@@ -203,6 +215,32 @@
     if (!res.ok) { const e = new Error(data?.message || res.statusText); e.data = data; throw e; }
     return data;
   };
+
+  // Role gating mirrors the Plan Room design: PM sees everything, subs see
+  // only the submit form, architects/owners have no bidding access. This is a
+  // view switcher, not authentication — a real auth layer replaces it later.
+  const ROLE_INITIALS = { pm: 'PM', sub: 'SC', architect: 'AE', owner: 'OW' };
+  const roleParam = new URLSearchParams(location.search).get('role');
+  let role = roleParam || localStorage.getItem('mdcRole') || 'pm';
+  if (!ROLE_INITIALS[role]) role = 'pm';
+  if (roleParam && ROLE_INITIALS[roleParam]) localStorage.setItem('mdcRole', role);
+
+  function applyRole() {
+    const isPm = role === 'pm';
+    const canBid = isPm || role === 'sub';
+    $('role-select').value = role;
+    $('avatar').textContent = ROLE_INITIALS[role];
+    $('no-access').classList.toggle('hidden', canBid);
+    $('sched-card').classList.toggle('hidden', !isPm);
+    $('bid-cols').classList.toggle('hidden', !canBid);
+    document.querySelector('.col-side').classList.toggle('hidden', !isPm);
+    $('project-select').classList.toggle('hidden', !canBid);
+  }
+  $('role-select').addEventListener('change', (e) => {
+    role = e.target.value;
+    localStorage.setItem('mdcRole', role);
+    applyRole();
+  });
 
   let projectId = null;
   let project = null;
@@ -399,6 +437,7 @@
     }
   });
 
+  applyRole();
   refreshDocsUi();
   init();
 </script>

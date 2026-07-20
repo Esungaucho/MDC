@@ -17,7 +17,10 @@ let app;
 function getApp() {
   if (!app) {
     const db = openDb(process.env.MDC_DB || '/tmp/planroom.db');
-    seed(db); // no-op when the database already has projects
+    // Demo mode only: with no persistent database attached (DATABASE_URL
+    // unset), the ephemeral store is seeded so the app always has data.
+    // Once DATABASE_URL is configured, production starts and stays clean.
+    if (!process.env.DATABASE_URL) seed(db);
     app = buildApp(db);
   }
   return app;
