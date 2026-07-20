@@ -121,6 +121,20 @@
         </div>
       </div>
       <div class="frow">
+        <div class="field">
+          <label for="np-phase">Phase</label>
+          <select id="np-phase"></select>
+        </div>
+        <div class="field">
+          <label for="np-category">Category</label>
+          <select id="np-category"></select>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="field narrow">
+          <label for="np-proposal">Proposal Amount</label>
+          <input id="np-proposal" placeholder="$0.00">
+        </div>
         <div class="field narrow" style="width:200px">
           <label for="np-gohard">Bids Due / Go-Hard Date</label>
           <input id="np-gohard" type="date">
@@ -132,6 +146,21 @@
       </div>
       <div id="np-msg" class="hidden"></div>
     </form>
+    <details style="margin-top:18px">
+      <summary style="font-size:12.5px;font-weight:600;color:rgba(27,39,51,0.7);cursor:pointer">Bulk import — paste rows from a spreadsheet</summary>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+        <div class="muted">Paste rows (tab- or comma-separated), one project per line. Columns:
+          <strong>Name, Phase, Category, Proposal Amount, Final Contract Amount, Code, Go-Hard Date</strong> —
+          only Name is required; a header row is detected and skipped. Phases can be written as in your
+          spreadsheet ("Submitted / Pending", "Awarded - Closed", "Withdraw by Client", …).</div>
+        <textarea id="import-text" rows="6" placeholder="Riverside Lofts&#9;Bidding&#9;Commercial New&#9;$700,000.00"></textarea>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button type="button" class="btn primary" id="import-btn">Import</button>
+          <span class="muted" id="import-status"></span>
+        </div>
+        <div id="import-result" class="hidden"></div>
+      </div>
+    </details>
   </section>
 
   <!-- Bid Schedule & Reminders -->
@@ -278,6 +307,40 @@
 
   TRADES.forEach((t) => $('trade').insertAdjacentHTML('beforeend', `<option>${esc(t)}</option>`));
 
+  const PHASES = {
+    initiation: 'Initiation', bidding: 'Bidding', submitted_pending: 'Submitted / Pending',
+    awarded_mobilizing: 'Awarded - Mobilizing', awarded_in_progress: 'Awarded - In Progress',
+    awarded_closed: 'Awarded - Closed', no_bid: 'No Bid', lost: 'Lost', client_withdraw: 'Withdraw by Client',
+  };
+  const CATEGORIES = ['Commercial New', 'Commercial Upfit', 'Development / Site Work', 'Residential New', 'Residential Renovation', 'Other'];
+  $('np-phase').innerHTML = Object.entries(PHASES)
+    .map(([v, l]) => `<option value="${v}"${v === 'bidding' ? ' selected' : ''}>${esc(l)}</option>`).join('');
+  $('np-category').innerHTML = '<option value="">— none —</option>'
+    + CATEGORIES.map((c) => `<option>${esc(c)}</option>`).join('');
+
+  // Maps a spreadsheet phase label ("Awarded - Closed", "Client Withdraw"…)
+  // to its slug; unknown values return null so the row can be reported.
+  function phaseSlug(text) {
+    const key = String(text || '').toLowerCase().replace(/[^a-z]+/g, ' ').trim();
+    const map = {
+      '': 'bidding',
+      'initiation': 'initiation',
+      'bidding': 'bidding',
+      'submitted pending': 'submitted_pending',
+      'submitted': 'submitted_pending',
+      'pending': 'submitted_pending',
+      'awarded mobilizing': 'awarded_mobilizing',
+      'awarded in progress': 'awarded_in_progress',
+      'awarded closed': 'awarded_closed',
+      'no bid': 'no_bid',
+      'lost': 'lost',
+      'withdraw by client': 'client_withdraw',
+      'client withdraw': 'client_withdraw',
+      'withdrawn by client': 'client_withdraw',
+    };
+    return map[key] ?? null;
+  }
+
   function showNewProject(cancellable) {
     $('new-proj-card').classList.remove('hidden');
     $('np-cancel').classList.toggle('hidden', !cancellable);
@@ -325,9 +388,12 @@
       const proj = await api('POST', '/api/projects', {
         name: $('np-name').value,
         code: $('np-code').value,
+        phase: $('np-phase').value,
+        category: $('np-category').value || undefined,
+        proposalAmount: $('np-proposal').value || undefined,
         goHardDate: $('np-gohard').value || undefined,
       });
-      ['np-name', 'np-code', 'np-gohard'].forEach((id) => { $(id).value = ''; });
+      ['np-name', 'np-code', 'np-proposal', 'np-gohard'].forEach((id) => { $(id).value = ''; });
       hideNewProject();
       location.hash = `project-${proj.id}`;
       await init();
@@ -338,6 +404,55 @@
     }
   });
   $('np-cancel').addEventListener('click', () => { hideNewProject(); init(); });
+
+  // --- Bulk import: paste spreadsheet rows, one project per line ---
+  function toIsoDate(s) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10);
+  }
+  function codeFromName(name) {
+    const initials = name.split(/\s+/).map((w) => w[0]).join('').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
+    return `${initials || 'PRJ'}-${String(Date.now()).slice(-5)}${Math.floor(Math.random() * 90 + 10)}`;
+  }
+  $('import-btn').addEventListener('click', async () => {
+    const lines = $('import-text').value.split('\n').map((l) => l.trim()).filter(Boolean);
+    const results = { ok: 0, failed: [] };
+    $('import-status').textContent = '';
+    for (let i = 0; i < lines.length; i++) {
+      const cols = (lines[i].includes('\t') ? lines[i].split('\t') : lines[i].split(',')).map((c) => c.trim());
+      const [name, phaseText, category, proposal, finalAmt, code, goHard] = cols;
+      // Skip a header row.
+      if (i === 0 && /^name$/i.test(name || '')) continue;
+      if (!name) continue;
+      const phase = phaseSlug(phaseText);
+      if (phase === null) {
+        results.failed.push(`"${name}": unknown phase "${phaseText}"`);
+        continue;
+      }
+      try {
+        await api('POST', '/api/projects', {
+          name,
+          code: code || codeFromName(name),
+          phase,
+          category: category || undefined,
+          proposalAmount: proposal || undefined,
+          finalContractAmount: finalAmt || undefined,
+          goHardDate: goHard ? toIsoDate(goHard) : undefined,
+        });
+        results.ok++;
+      } catch (err) {
+        results.failed.push(`"${name}": ${err.message}`);
+      }
+      $('import-status').textContent = `Importing… ${i + 1}/${lines.length}`;
+    }
+    $('import-status').textContent = '';
+    const el = $('import-result');
+    el.className = results.failed.length ? 'err' : 'success';
+    el.textContent = `Imported ${results.ok} project${results.ok === 1 ? '' : 's'}.`
+      + (results.failed.length ? ` ${results.failed.length} failed — ${results.failed.join(' · ')}` : '');
+    if (results.ok) { $('import-text').value = ''; await init(); }
+  });
 
   async function loadProject() {
     project = await api('GET', `/api/projects/${projectId}`);

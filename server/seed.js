@@ -36,8 +36,10 @@ async function seed(db, { force = false } = {}) {
     'Northgate Roofing', 'Roofing', 'S. Patel', 's.patel@northgateroofing.com', '(555) 555-0128', 0, 1, 1
   )).lastInsertRowid;
 
-  const insertProject = db.prepare(
-    'INSERT INTO projects (name, code, status, go_hard_date, reminders_automated) VALUES (?, ?, ?, ?, ?)');
+  const insertProject = db.prepare(`
+    INSERT INTO projects (name, code, status, phase, category, proposal_amount_cents,
+                          final_contract_amount_cents, go_hard_date, reminders_automated)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const insertSheet = db.prepare(
     'INSERT INTO sheets (project_id, sheet_number, title, discipline, superseded) VALUES (?, ?, ?, ?, ?)');
   const insertRev = db.prepare(
@@ -62,7 +64,8 @@ async function seed(db, { force = false } = {}) {
   }
 
   // --- Project 1: Meridian Office Tower (the design's project) ---
-  const meridian = (await insertProject.run('Meridian Office Tower', 'MOT-2026', 'bidding', '2026-08-17', 1)).lastInsertRowid;
+  const meridian = (await insertProject.run('Meridian Office Tower', 'MOT-2026', 'bidding',
+    'bidding', 'Commercial New', 70_000_000, null, '2026-08-17', 1)).lastInsertRowid;
   const motSheets = await addSheets(meridian, [
     { number: 'A-101', title: 'Level 1 Floor Plan', discipline: 'Architectural',
       revs: [{ rev: 1, issued: '2026-03-02' }, { rev: 2, issued: '2026-05-11' }, { rev: 3, issued: '2026-07-08' }] },
@@ -97,7 +100,8 @@ async function seed(db, { force = false } = {}) {
   await insertBid.run(meridian, companies['Alvarez Steel'], 'Steel', 124_000_000, null, 'submitted', '2026-07-12T17:05:00Z');
 
   // --- Project 2: Harborview Medical Pavilion (bidding, further out) ---
-  const harborview = (await insertProject.run('Harborview Medical Pavilion', 'HMP-2026', 'bidding', '2026-09-04', 1)).lastInsertRowid;
+  const harborview = (await insertProject.run('Harborview Medical Pavilion', 'HMP-2026', 'bidding',
+    'submitted_pending', 'Commercial Upfit', 46_056_000, null, '2026-09-04', 1)).lastInsertRowid;
   const hmpSheets = await addSheets(harborview, [
     { number: 'A-100', title: 'Overall Floor Plan', discipline: 'Architectural', issued: '2026-06-01' },
     { number: 'A-300', title: 'Reflected Ceiling Plans', discipline: 'Architectural', issued: '2026-06-01' },
@@ -114,7 +118,8 @@ async function seed(db, { force = false } = {}) {
   await insertBid.run(harborview, companies['Northgate Roofing'], 'Roofing', 48_750_000, 'TPO alternate included.', 'submitted', '2026-07-18T13:25:00Z');
 
   // --- Project 3: Elm Street Parking Structure (bidding closed, award made) ---
-  const elm = (await insertProject.run('Elm Street Parking Structure', 'ESP-2026', 'awarded', '2026-06-12', 0)).lastInsertRowid;
+  const elm = (await insertProject.run('Elm Street Parking Structure', 'ESP-2026', 'awarded',
+    'awarded_closed', 'Development / Site Work', 45_000_000, 44_972_437, '2026-06-12', 0)).lastInsertRowid;
   await addSheets(elm, [
     { number: 'A-110', title: 'Plaza Level Plan', discipline: 'Architectural', issued: '2026-04-06' },
     { number: 'S-110', title: 'Precast Framing Plan', discipline: 'Structural',

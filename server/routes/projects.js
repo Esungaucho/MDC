@@ -2,8 +2,51 @@
 
 const { ApiError, created } = require('../web');
 const {
-  today, requireIsoDate, shiftDays, requireString, toBool, biddingOpen,
+  today, requireIsoDate, shiftDays, requireString, toBool, biddingOpen, parseMoneyField,
 } = require('../util');
+
+// Project lifecycle phases (the pipeline taxonomy). The legacy `status`
+// column is kept in sync via PHASE_TO_STATUS for backward compatibility.
+const PHASE_LABELS = {
+  initiation: 'Initiation',
+  bidding: 'Bidding',
+  submitted_pending: 'Submitted / Pending',
+  awarded_mobilizing: 'Awarded - Mobilizing',
+  awarded_in_progress: 'Awarded - In Progress',
+  awarded_closed: 'Awarded - Closed',
+  no_bid: 'No Bid',
+  lost: 'Lost',
+  client_withdraw: 'Withdraw by Client',
+};
+const PHASE_TO_STATUS = {
+  initiation: 'planning',
+  bidding: 'bidding',
+  submitted_pending: 'bidding',
+  awarded_mobilizing: 'awarded',
+  awarded_in_progress: 'active',
+  awarded_closed: 'closed',
+  no_bid: 'closed',
+  lost: 'closed',
+  client_withdraw: 'closed',
+};
+const STATUS_TO_PHASE = {
+  planning: 'initiation',
+  bidding: 'bidding',
+  awarded: 'awarded_mobilizing',
+  active: 'awarded_in_progress',
+  closed: 'awarded_closed',
+};
+
+function effectivePhase(row) {
+  return row.phase || STATUS_TO_PHASE[row.status] || 'bidding';
+}
+
+function requirePhase(value) {
+  if (!PHASE_LABELS[value]) {
+    throw new ApiError(422, 'invalid_phase', `phase must be one of ${Object.keys(PHASE_LABELS).join('|')}`);
+  }
+  return value;
+}
 
 const REMINDER_OFFSETS = { one_week: -7, final: -3 };
 const REMINDER_LABELS = {
@@ -18,11 +61,17 @@ async function getProjectOr404(db, id) {
 }
 
 function projectJson(row) {
+  const phase = effectivePhase(row);
   return {
     id: row.id,
     name: row.name,
     code: row.code,
     status: row.status,
+    phase,
+    phaseLabel: PHASE_LABELS[phase],
+    category: row.category,
+    proposalAmountCents: row.proposal_amount_cents,
+    finalContractAmountCents: row.final_contract_amount_cents,
     goHardDate: row.go_hard_date,
     remindersAutomated: Boolean(row.reminders_automated),
     biddingOpen: biddingOpen(row),
@@ -73,17 +122,26 @@ function register(app, db) {
   app.post('/api/projects', async ({ body }) => {
     const name = requireString(body, 'name');
     const code = requireString(body, 'code');
-    const status = body.status || 'bidding';
-    const valid = ['planning', 'bidding', 'awarded', 'active', 'closed'];
-    if (!valid.includes(status)) {
-      throw new ApiError(422, 'invalid_status', `status must be one of ${valid.join('|')}`);
+    let phase = 'bidding';
+    if (body.phase !== undefined) phase = requirePhase(body.phase);
+    else if (body.status !== undefined) {
+      if (!STATUS_TO_PHASE[body.status]) {
+        throw new ApiError(422, 'invalid_status', `status must be one of ${Object.keys(STATUS_TO_PHASE).join('|')}`);
+      }
+      phase = STATUS_TO_PHASE[body.status];
     }
+    const proposal = parseMoneyField(body, 'proposalAmount');
+    const finalContract = parseMoneyField(body, 'finalContractAmount');
     const goHardDate = body.goHardDate ? requireIsoDate(body.goHardDate, 'goHardDate') : null;
     const dup = await db.prepare('SELECT id FROM projects WHERE code = ?').get(code);
     if (dup) throw new ApiError(409, 'duplicate_code', `Project code ${code} already exists`);
-    const result = await db.prepare(
-      'INSERT INTO projects (name, code, status, go_hard_date, reminders_automated) VALUES (?, ?, ?, ?, ?)'
-    ).run(name, code, status, goHardDate, toBool(body.remindersAutomated, true) ? 1 : 0);
+    const result = await db.prepare(`
+      INSERT INTO projects (name, code, status, phase, category, proposal_amount_cents,
+                            final_contract_amount_cents, go_hard_date, reminders_automated)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(name, code, PHASE_TO_STATUS[phase], phase,
+      body.category || null, proposal ?? null, finalContract ?? null,
+      goHardDate, toBool(body.remindersAutomated, true) ? 1 : 0);
     const project = await getProjectOr404(db, result.lastInsertRowid);
     await syncReminders(db, project);
     return created(projectJson(project));
@@ -106,13 +164,21 @@ function register(app, db) {
     const project = await getProjectOr404(db, params.id);
     const updates = {};
     if (body.name !== undefined) updates.name = requireString(body, 'name');
-    if (body.status !== undefined) {
-      const valid = ['planning', 'bidding', 'awarded', 'active', 'closed'];
-      if (!valid.includes(body.status)) {
-        throw new ApiError(422, 'invalid_status', `status must be one of ${valid.join('|')}`);
+    if (body.phase !== undefined) {
+      updates.phase = requirePhase(body.phase);
+      updates.status = PHASE_TO_STATUS[body.phase];
+    } else if (body.status !== undefined) {
+      if (!STATUS_TO_PHASE[body.status]) {
+        throw new ApiError(422, 'invalid_status', `status must be one of ${Object.keys(STATUS_TO_PHASE).join('|')}`);
       }
       updates.status = body.status;
+      updates.phase = STATUS_TO_PHASE[body.status];
     }
+    if (body.category !== undefined) updates.category = body.category || null;
+    const proposal = parseMoneyField(body, 'proposalAmount');
+    if (proposal !== undefined) updates.proposal_amount_cents = proposal;
+    const finalContract = parseMoneyField(body, 'finalContractAmount');
+    if (finalContract !== undefined) updates.final_contract_amount_cents = finalContract;
     if (body.goHardDate !== undefined) {
       updates.go_hard_date = body.goHardDate === null
         ? null
@@ -173,4 +239,7 @@ function register(app, db) {
   });
 }
 
-module.exports = { register, projectJson, reminderJson, syncReminders, getProjectOr404 };
+module.exports = {
+  register, projectJson, reminderJson, syncReminders, getProjectOr404,
+  PHASE_LABELS, effectivePhase,
+};

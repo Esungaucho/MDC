@@ -27,10 +27,28 @@ function schemaStatements(dialect) {
       code TEXT NOT NULL UNIQUE,
       status TEXT NOT NULL DEFAULT 'bidding'
         CHECK (status IN ('planning','bidding','awarded','active','closed')),
+      phase TEXT,
+      category TEXT,
+      proposal_amount_cents INTEGER,
+      final_contract_amount_cents INTEGER,
       go_hard_date TEXT,
       reminders_automated INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT ${NOW}
     )`,
+    // Migrations for databases created before these columns existed. Postgres
+    // supports IF NOT EXISTS; the SQLite backend swallows duplicate-column
+    // errors in init() instead.
+    ...(pg ? [
+      'ALTER TABLE projects ADD COLUMN IF NOT EXISTS phase TEXT',
+      'ALTER TABLE projects ADD COLUMN IF NOT EXISTS category TEXT',
+      'ALTER TABLE projects ADD COLUMN IF NOT EXISTS proposal_amount_cents INTEGER',
+      'ALTER TABLE projects ADD COLUMN IF NOT EXISTS final_contract_amount_cents INTEGER',
+    ] : [
+      'ALTER TABLE projects ADD COLUMN phase TEXT',
+      'ALTER TABLE projects ADD COLUMN category TEXT',
+      'ALTER TABLE projects ADD COLUMN proposal_amount_cents INTEGER',
+      'ALTER TABLE projects ADD COLUMN final_contract_amount_cents INTEGER',
+    ]),
     `CREATE TABLE IF NOT EXISTS sheets (
       ${ID},
       project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -136,7 +154,14 @@ class SqliteDb {
   async init() {
     this.raw.exec('PRAGMA foreign_keys = ON;');
     if (this.file !== ':memory:') this.raw.exec('PRAGMA journal_mode = WAL;');
-    for (const stmt of schemaStatements('sqlite')) this.raw.exec(stmt);
+    for (const stmt of schemaStatements('sqlite')) {
+      try {
+        this.raw.exec(stmt);
+      } catch (err) {
+        // SQLite has no ADD COLUMN IF NOT EXISTS; ignore re-run migrations.
+        if (!/duplicate column name/i.test(err.message)) throw err;
+      }
+    }
   }
 
   prepare(sql) {

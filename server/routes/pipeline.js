@@ -1,6 +1,11 @@
 'use strict';
 
 const { today, biddingOpen } = require('../util');
+const { PHASE_LABELS, effectivePhase } = require('./projects');
+
+// Phases counted as open pipeline vs. decided outcomes.
+const PIPELINE_PHASES = ['initiation', 'bidding', 'submitted_pending'];
+const OUTCOME_PHASES = ['awarded_mobilizing', 'awarded_in_progress', 'awarded_closed', 'no_bid', 'lost', 'client_withdraw'];
 
 function daysBetween(fromIso, toIso) {
   return Math.round((new Date(`${toIso}T00:00:00Z`) - new Date(`${fromIso}T00:00:00Z`)) / 86_400_000);
@@ -67,11 +72,17 @@ async function buildPipeline(db) {
     }));
 
     const open = biddingOpen(p, asOf);
+    const phase = effectivePhase(p);
     projects.push({
       id: p.id,
       name: p.name,
       code: p.code,
       status: p.status,
+      phase,
+      phaseLabel: PHASE_LABELS[phase],
+      category: p.category,
+      proposalAmountCents: p.proposal_amount_cents,
+      finalContractAmountCents: p.final_contract_amount_cents,
       goHardDate: p.go_hard_date,
       biddingStatus: p.go_hard_date ? (open ? 'open' : 'closed') : 'not_scheduled',
       daysToGoHard: p.go_hard_date ? daysBetween(asOf, p.go_hard_date) : null,
@@ -98,8 +109,77 @@ async function buildPipeline(db) {
     });
   }
 
+  // --- Phase / category rollups (computed from the project rows) ---
+
+  const projectsByPhase = Object.keys(PHASE_LABELS).map((phase) => {
+    const count = projects.filter((p) => p.phase === phase).length;
+    return {
+      phase,
+      label: PHASE_LABELS[phase],
+      count,
+      pct: projects.length ? +(count / projects.length * 100).toFixed(1) : 0,
+    };
+  });
+
+  const pipelinePotential = PIPELINE_PHASES.map((phase) => ({
+    phase,
+    label: PHASE_LABELS[phase],
+    proposalCents: projects.filter((p) => p.phase === phase)
+      .reduce((n, p) => n + (p.proposalAmountCents || 0), 0),
+  }));
+  const pipelinePotentialTotal = pipelinePotential.reduce((n, r) => n + r.proposalCents, 0);
+
+  // Win-loss value: the final contract when one exists, otherwise the
+  // proposal that was decided on (lost / no-bid / withdrawn work has no
+  // final contract but still represents decided value).
+  const winLossRows = OUTCOME_PHASES.map((phase) => ({
+    phase,
+    label: PHASE_LABELS[phase],
+    valueCents: projects.filter((p) => p.phase === phase)
+      .reduce((n, p) => n + (p.finalContractAmountCents ?? p.proposalAmountCents ?? 0), 0),
+  }));
+  const winLossTotal = winLossRows.reduce((n, r) => n + r.valueCents, 0);
+  const winLoss = winLossRows.map((r) => ({
+    ...r,
+    pct: winLossTotal ? +(r.valueCents / winLossTotal * 100).toFixed(2) : 0,
+  }));
+
+  function categoryTable(rows) {
+    const byCat = new Map();
+    for (const p of rows) {
+      const cat = p.category || 'Uncategorized';
+      if (!byCat.has(cat)) byCat.set(cat, { category: cat, proposalCents: 0, finalCents: 0 });
+      const entry = byCat.get(cat);
+      entry.proposalCents += p.proposalAmountCents || 0;
+      entry.finalCents += p.finalContractAmountCents || 0;
+    }
+    return [...byCat.values()].sort((a, b) => a.category.localeCompare(b.category));
+  }
+  const activeRows = projects.filter((p) => PIPELINE_PHASES.includes(p.phase));
+  const postAwardRows = projects.filter((p) => OUTCOME_PHASES.includes(p.phase));
+  const postAwardByCat = new Map();
+  for (const p of postAwardRows) {
+    const cat = p.category || 'Uncategorized';
+    if (!postAwardByCat.has(cat)) postAwardByCat.set(cat, { category: cat, byPhase: {}, totalCents: 0 });
+    const entry = postAwardByCat.get(cat);
+    const v = p.finalContractAmountCents || 0;
+    entry.byPhase[p.phase] = (entry.byPhase[p.phase] || 0) + v;
+    entry.totalCents += v;
+  }
+  const projectsByCategory = {
+    active: categoryTable(activeRows),
+    postAward: {
+      phases: OUTCOME_PHASES.filter((ph) => postAwardRows.some((p) => p.phase === ph)),
+      rows: [...postAwardByCat.values()].sort((a, b) => a.category.localeCompare(b.category)),
+    },
+  };
+
   // Portfolio-wide compositions for the dashboard's part-to-whole charts.
   const breakdowns = {
+    projectsByPhase,
+    pipelinePotential: { rows: pipelinePotential, totalCents: pipelinePotentialTotal },
+    winLoss: { rows: winLoss, totalCents: winLossTotal },
+    projectsByCategory,
     bidValueByTrade: (await db.prepare(`
       SELECT trade, COUNT(*) AS count, COALESCE(SUM(amount_cents), 0) AS "totalCents"
       FROM bids GROUP BY trade ORDER BY "totalCents" DESC, trade

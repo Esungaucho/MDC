@@ -62,6 +62,17 @@
   .dot.pending { background: var(--amber); }
   #error { display: none; background: var(--amber-bg); color: var(--amber-ink); border: 1px solid rgba(183,121,31,0.3); border-radius: 8px; padding: 14px 18px; font-size: 13px; }
   .pies { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+  .mini-row { display: grid; grid-template-columns: 150px 1fr auto; align-items: center; gap: 10px; padding: 5px 0; font-size: 12.5px; }
+  .mini-row .lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mini-row .track { height: 12px; position: relative; }
+  .mini-row .bar { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 0 3px 3px 0; min-width: 2px; }
+  .mini-row .bar.lost { background: var(--gray); }
+  .mini-row .val { font-variant-numeric: tabular-nums; color: rgba(27,39,51,0.7); white-space: nowrap; }
+  .cat-tables { display: flex; gap: 32px; flex-wrap: wrap; }
+  .cat-tables > div { flex: 1; min-width: 320px; }
+  .cat-tables h3 { font-size: 12.5px; font-weight: 600; color: rgba(27,39,51,0.6); margin: 0 0 8px; }
+  .cat-tables td.num, .cat-tables th.num { text-align: right; }
+  .cat-tables tr.total td { font-weight: 700; color: var(--navy); border-top: 2px solid var(--border); }
   .pie-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px 22px; }
   .pie-body { display: flex; align-items: center; gap: 18px; }
   .pie-legend { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; font-size: 12.5px; }
@@ -102,6 +113,40 @@
   <section class="tiles" id="tiles"></section>
   <section class="pies">
     <div class="pie-card">
+      <h2>Projects by Phase</h2>
+      <div id="phase-rows"></div>
+    </div>
+    <div class="pie-card">
+      <h2>Pipeline Potential</h2>
+      <div id="potential-rows"></div>
+    </div>
+    <div class="pie-card">
+      <h2>Win-Loss</h2>
+      <div id="winloss-rows"></div>
+    </div>
+  </section>
+  <section class="card">
+    <h2>Projects by Category</h2>
+    <div class="cat-tables">
+      <div>
+        <h3>Open pipeline — Initiation, Bidding, Submitted / Pending</h3>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Category</th><th class="num">Proposal Amount</th><th class="num">Final Contract</th></tr></thead>
+          <tbody id="cat-active"></tbody>
+        </table></div>
+      </div>
+      <div>
+        <h3>Post-award decision — final contract by outcome</h3>
+        <div class="tablewrap"><table id="cat-post-table">
+          <thead id="cat-post-head"></thead>
+          <tbody id="cat-post"></tbody>
+        </table></div>
+        <div class="muted" id="cat-post-empty" style="display:none;padding:8px 0">No decided projects yet.</div>
+      </div>
+    </div>
+  </section>
+  <section class="pies">
+    <div class="pie-card">
       <h2>Bid Value by Trade</h2>
       <div class="pie-body" id="pie-trade"></div>
     </div>
@@ -136,7 +181,8 @@
 </main>
 <script>
   const fmtMoney = (cents) => cents == null ? '—'
-    : '$' + Math.round(cents / 100).toLocaleString('en-US');
+    : '$' + (cents / 100).toLocaleString('en-US',
+        cents % 100 ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : {});
   const fmtDate = (iso) => iso == null ? '—'
     : new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
@@ -247,6 +293,73 @@
     ].join('');
 
     const b = data.breakdowns;
+
+    // Mini bar rows: label | bar (scaled to max) | value.
+    function miniRows(id, rows, empty) {
+      const el = document.getElementById(id);
+      const shown = rows.filter((r) => r.value > 0);
+      if (!shown.length) { el.innerHTML = `<div class="muted">${empty}</div>`; return; }
+      const max = Math.max(...shown.map((r) => r.value));
+      el.innerHTML = shown.map((r) => `
+        <div class="mini-row">
+          <div class="lbl" title="${esc(r.label)}">${esc(r.label)}</div>
+          <div class="track"><div class="bar ${r.lost ? 'lost' : ''}" style="width:${(r.value / max * 100).toFixed(1)}%"></div></div>
+          <div class="val">${r.display}</div>
+        </div>`).join('');
+    }
+
+    miniRows('phase-rows', b.projectsByPhase.map((r) => ({
+      label: r.label, value: r.count, display: `${r.count} · ${r.pct}%`,
+      lost: ['no_bid', 'lost', 'client_withdraw'].includes(r.phase),
+    })), 'No projects yet.');
+
+    miniRows('potential-rows', b.pipelinePotential.rows.map((r) => ({
+      label: r.label, value: r.proposalCents, display: fmtMoney(r.proposalCents),
+    })), 'No open-pipeline proposal amounts yet.');
+    if (b.pipelinePotential.totalCents) {
+      document.getElementById('potential-rows').insertAdjacentHTML('beforeend',
+        `<div class="mini-row" style="border-top:1px solid rgba(21,42,69,0.1);margin-top:4px;padding-top:8px">
+          <div class="lbl" style="font-weight:700">Total</div><div></div>
+          <div class="val" style="font-weight:700;color:var(--navy)">${fmtMoney(b.pipelinePotential.totalCents)}</div>
+        </div>`);
+    }
+
+    miniRows('winloss-rows', b.winLoss.rows.map((r) => ({
+      label: r.label, value: r.valueCents, display: `${fmtMoney(r.valueCents)} · ${Math.round(r.pct)}%`,
+      lost: ['no_bid', 'lost', 'client_withdraw'].includes(r.phase),
+    })), 'No decided projects yet.');
+
+    // Category tables.
+    const act = b.projectsByCategory.active;
+    const actTotals = act.reduce((t, r) => ({ p: t.p + r.proposalCents, f: t.f + r.finalCents }), { p: 0, f: 0 });
+    document.getElementById('cat-active').innerHTML = act.map((r) => `
+      <tr><td>${esc(r.category)}</td><td class="num">${fmtMoney(r.proposalCents)}</td><td class="num">${fmtMoney(r.finalCents)}</td></tr>`).join('')
+      + (act.length ? `<tr class="total"><td>Grand Total</td><td class="num">${fmtMoney(actTotals.p)}</td><td class="num">${fmtMoney(actTotals.f)}</td></tr>`
+        : '<tr><td colspan="3" class="muted" style="padding:12px 10px">No open-pipeline projects yet.</td></tr>');
+
+    const post = b.projectsByCategory.postAward;
+    const postEmpty = !post.rows.length;
+    document.getElementById('cat-post-table').style.display = postEmpty ? 'none' : '';
+    document.getElementById('cat-post-empty').style.display = postEmpty ? 'block' : 'none';
+    if (!postEmpty) {
+      const labels = { awarded_mobilizing: 'Awarded - Mobilizing', awarded_in_progress: 'Awarded - In Progress', awarded_closed: 'Awarded - Closed', no_bid: 'No Bid', lost: 'Lost', client_withdraw: 'Withdraw by Client' };
+      document.getElementById('cat-post-head').innerHTML = '<tr><th>Category</th>'
+        + post.phases.map((ph) => `<th class="num">${esc(labels[ph] || ph)}</th>`).join('')
+        + '<th class="num">Total</th></tr>';
+      const phaseTotals = Object.fromEntries(post.phases.map((ph) => [ph, 0]));
+      let grand = 0;
+      document.getElementById('cat-post').innerHTML = post.rows.map((r) => {
+        post.phases.forEach((ph) => { phaseTotals[ph] += r.byPhase[ph] || 0; });
+        grand += r.totalCents;
+        return `<tr><td>${esc(r.category)}</td>`
+          + post.phases.map((ph) => `<td class="num">${r.byPhase[ph] !== undefined ? fmtMoney(r.byPhase[ph]) : '—'}</td>`).join('')
+          + `<td class="num">${fmtMoney(r.totalCents)}</td></tr>`;
+      }).join('')
+        + `<tr class="total"><td>Grand Total</td>`
+        + post.phases.map((ph) => `<td class="num">${fmtMoney(phaseTotals[ph])}</td>`).join('')
+        + `<td class="num">${fmtMoney(grand)}</td></tr>`;
+    }
+
     donut(document.getElementById('pie-trade'),
       slotted(b.bidValueByTrade.map((t) => ({ label: t.trade, value: t.totalCents }))),
       fmtMoney);

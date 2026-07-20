@@ -91,6 +91,46 @@ test('pipeline rolls up all projects', async () => {
   assert.deepEqual(body.breakdowns.rfisByStatus, { open: 2, answered: 1, closed: 1 });
 });
 
+test('phase and category rollups', async () => {
+  const { body } = await seeded.request('GET', '/api/pipeline');
+  const b = body.breakdowns;
+
+  const byPhase = Object.fromEntries(b.projectsByPhase.map((r) => [r.phase, r]));
+  assert.equal(byPhase.bidding.count, 1);
+  assert.equal(byPhase.submitted_pending.count, 1);
+  assert.equal(byPhase.awarded_closed.count, 1);
+  assert.equal(byPhase.bidding.pct, 33.3);
+
+  const potential = Object.fromEntries(b.pipelinePotential.rows.map((r) => [r.phase, r.proposalCents]));
+  assert.equal(potential.bidding, 70_000_000);
+  assert.equal(potential.submitted_pending, 46_056_000);
+  assert.equal(b.pipelinePotential.totalCents, 116_056_000);
+
+  // Awarded-closed uses the final contract amount; 100% of decided value.
+  const closed = b.winLoss.rows.find((r) => r.phase === 'awarded_closed');
+  assert.equal(closed.valueCents, 44_972_437);
+  assert.equal(closed.pct, 100);
+
+  const activeCats = Object.fromEntries(b.projectsByCategory.active.map((r) => [r.category, r]));
+  assert.equal(activeCats['Commercial New'].proposalCents, 70_000_000);
+  assert.equal(activeCats['Commercial Upfit'].proposalCents, 46_056_000);
+  assert.deepEqual(b.projectsByCategory.postAward.phases, ['awarded_closed']);
+  assert.equal(b.projectsByCategory.postAward.rows[0].byPhase.awarded_closed, 44_972_437);
+
+  // Phase moves via PATCH update both phase and legacy status.
+  const proj = (await fresh.request('POST', '/api/projects', {
+    name: 'Phase Test', code: 'PH-1', phase: 'submitted_pending',
+    category: 'Residential New', proposalAmount: '$514,935.00',
+  })).body;
+  assert.equal(proj.phaseLabel, 'Submitted / Pending');
+  assert.equal(proj.proposalAmountCents, 51_493_500);
+  const moved = (await fresh.request('PATCH', `/api/projects/${proj.id}`, {
+    phase: 'lost',
+  })).body;
+  assert.equal(moved.phase, 'lost');
+  assert.equal(moved.status, 'closed');
+});
+
 test('seed refuses to run twice without force', async () => {
   const result = await seed(seeded.db);
   assert.equal(result.seeded, false);

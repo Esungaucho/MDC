@@ -47,6 +47,27 @@ function parseAmountCents(body) {
   return Math.round(n * 100);
 }
 
+// Reads a named money field from a body: `${key}Cents` (integer) wins,
+// otherwise `${key}` as dollars ("$460,474.37" or 460474.37). Returns
+// undefined when neither is present, null when explicitly cleared.
+function parseMoneyField(body, key) {
+  const cents = body[`${key}Cents`];
+  if (cents !== undefined && cents !== null) {
+    if (!Number.isInteger(cents) || cents < 0) {
+      throw new ApiError(422, 'invalid_amount', `${key}Cents must be a non-negative integer`);
+    }
+    return cents;
+  }
+  const v = body[key];
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return null;
+  const n = Number(String(v).replace(/[$,\s]/g, ''));
+  if (!Number.isFinite(n) || n < 0) {
+    throw new ApiError(422, 'invalid_amount', `Could not parse ${key} ${JSON.stringify(v)}`);
+  }
+  return Math.round(n * 100);
+}
+
 function toBool(value, fallback = false) {
   if (value === undefined || value === null) return fallback;
   return Boolean(value);
@@ -63,6 +84,7 @@ module.exports = {
   shiftDays,
   requireString,
   parseAmountCents,
+  parseMoneyField,
   toBool,
   biddingOpen,
 };
