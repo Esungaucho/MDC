@@ -4,17 +4,17 @@
 // projects so the pipeline dashboard has a real portfolio to roll up.
 // Usage: npm run seed  (pass --force to wipe and reseed an existing database)
 
-const { openDb } = require('./db');
+const { openStorage } = require('./db');
 const { syncReminders } = require('./routes/projects');
 
-function seed(db, { force = false } = {}) {
-  const existing = db.prepare('SELECT COUNT(*) c FROM projects').get().c;
+async function seed(db, { force = false } = {}) {
+  const existing = (await db.prepare('SELECT COUNT(*) c FROM projects').get()).c;
   if (existing > 0) {
     if (!force) {
       return { seeded: false, reason: 'Database already has projects. Re-run with --force to wipe and reseed.' };
     }
     for (const table of ['reminders', 'bids', 'rfis', 'sheet_revisions', 'sheets', 'companies', 'projects']) {
-      db.prepare(`DELETE FROM ${table}`).run();
+      await db.prepare(`DELETE FROM ${table}`).run();
     }
   }
 
@@ -29,12 +29,12 @@ function seed(db, { force = false } = {}) {
     ['Coastal Electric', 'Electrical', 'M. Ibarra', 'm.ibarra@coastalelectric.com', '(555) 555-0190'],
     ['Summit Concrete', 'Concrete', 'D. Okafor', 'd.okafor@summitconcrete.com', '(555) 555-0163'],
   ]) {
-    companies[name] = insertCompany.run(name, trade, contact, email, phone, 1, 1, 1).lastInsertRowid;
+    companies[name] = (await insertCompany.run(name, trade, contact, email, phone, 1, 1, 1)).lastInsertRowid;
   }
   // New vendor that bid without being in the directory yet (docs received with bid).
-  companies['Northgate Roofing'] = insertCompany.run(
+  companies['Northgate Roofing'] = (await insertCompany.run(
     'Northgate Roofing', 'Roofing', 'S. Patel', 's.patel@northgateroofing.com', '(555) 555-0128', 0, 1, 1
-  ).lastInsertRowid;
+  )).lastInsertRowid;
 
   const insertProject = db.prepare(
     'INSERT INTO projects (name, code, status, go_hard_date, reminders_automated) VALUES (?, ?, ?, ?, ?)');
@@ -48,22 +48,22 @@ function seed(db, { force = false } = {}) {
   const insertBid = db.prepare(
     'INSERT INTO bids (project_id, company_id, trade, amount_cents, notes, status, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
 
-  function addSheets(projectId, sheets) {
+  async function addSheets(projectId, sheets) {
     const ids = {};
     for (const s of sheets) {
-      const sheetId = insertSheet.run(projectId, s.number, s.title, s.discipline, s.superseded ? 1 : 0).lastInsertRowid;
+      const sheetId = (await insertSheet.run(projectId, s.number, s.title, s.discipline, s.superseded ? 1 : 0)).lastInsertRowid;
       ids[s.number] = sheetId;
       const revs = s.revs || [{ rev: 1, issued: s.issued || '2026-05-01' }];
-      revs.forEach((r, i) => {
-        insertRev.run(sheetId, r.rev, i === revs.length - 1 ? 1 : 0, r.issued);
-      });
+      for (let i = 0; i < revs.length; i++) {
+        await insertRev.run(sheetId, revs[i].rev, i === revs.length - 1 ? 1 : 0, revs[i].issued);
+      }
     }
     return ids;
   }
 
   // --- Project 1: Meridian Office Tower (the design's project) ---
-  const meridian = insertProject.run('Meridian Office Tower', 'MOT-2026', 'bidding', '2026-08-17', 1).lastInsertRowid;
-  const motSheets = addSheets(meridian, [
+  const meridian = (await insertProject.run('Meridian Office Tower', 'MOT-2026', 'bidding', '2026-08-17', 1)).lastInsertRowid;
+  const motSheets = await addSheets(meridian, [
     { number: 'A-101', title: 'Level 1 Floor Plan', discipline: 'Architectural',
       revs: [{ rev: 1, issued: '2026-03-02' }, { rev: 2, issued: '2026-05-11' }, { rev: 3, issued: '2026-07-08' }] },
     { number: 'A-102', title: 'Level 2 Floor Plan', discipline: 'Architectural',
@@ -81,71 +81,73 @@ function seed(db, { force = false } = {}) {
     { number: 'C-201', title: 'Grading & Drainage', discipline: 'Civil', issued: '2026-03-02' },
   ]);
 
-  insertRfi.run(meridian, 12, 'Confirm curtain wall anchor spacing',
+  await insertRfi.run(meridian, 12, 'Confirm curtain wall anchor spacing',
     'Anchor spacing on elevation grid B differs between the elevation and the curtain wall shop standard.',
     motSheets['A-201'], 'closed', 'Use 24" o.c. per revised detail 5/A-201.',
     'R. Cole — Glassline Inc', null, null, '2026-07-02T14:10:00Z', '2026-07-09T16:00:00Z');
-  insertRfi.run(meridian, 13, 'Conflict between duct routing and structural beam',
+  await insertRfi.run(meridian, 13, 'Conflict between duct routing and structural beam',
     'Main supply duct at gridline 4 clashes with the W24 beam bottom flange.',
     motSheets['M-101'], 'answered', 'Drop duct 8" and route under beam; coordinate with sprinkler main.',
     'T. Nguyen — Apex Mechanical', null, null, '2026-07-10T09:30:00Z', '2026-07-15T11:20:00Z');
-  insertRfi.run(meridian, 14, 'Clarify beam depth at gridline C-4',
+  await insertRfi.run(meridian, 14, 'Clarify beam depth at gridline C-4',
     'Framing plan shows W18 but the schedule lists W21 at C-4. Which governs?',
     motSheets['S-201'], 'open', null,
     'J. Alvarez — Alvarez Steel', 62, 38, '2026-07-14T15:45:00Z', '2026-07-14T15:45:00Z');
 
-  insertBid.run(meridian, companies['Alvarez Steel'], 'Steel', 124_000_000, null, 'submitted', '2026-07-12T17:05:00Z');
+  await insertBid.run(meridian, companies['Alvarez Steel'], 'Steel', 124_000_000, null, 'submitted', '2026-07-12T17:05:00Z');
 
   // --- Project 2: Harborview Medical Pavilion (bidding, further out) ---
-  const harborview = insertProject.run('Harborview Medical Pavilion', 'HMP-2026', 'bidding', '2026-09-04', 1).lastInsertRowid;
-  const hmpSheets = addSheets(harborview, [
+  const harborview = (await insertProject.run('Harborview Medical Pavilion', 'HMP-2026', 'bidding', '2026-09-04', 1)).lastInsertRowid;
+  const hmpSheets = await addSheets(harborview, [
     { number: 'A-100', title: 'Overall Floor Plan', discipline: 'Architectural', issued: '2026-06-01' },
     { number: 'A-300', title: 'Reflected Ceiling Plans', discipline: 'Architectural', issued: '2026-06-01' },
     { number: 'S-100', title: 'Foundation & Slab Plan', discipline: 'Structural', issued: '2026-06-01' },
     { number: 'M-100', title: 'HVAC Plan', discipline: 'MEP', issued: '2026-06-01' },
     { number: 'E-100', title: 'Power & Lighting Plan', discipline: 'MEP', issued: '2026-06-01' },
   ]);
-  insertRfi.run(harborview, 1, 'Slab depression extents at imaging suite',
+  await insertRfi.run(harborview, 1, 'Slab depression extents at imaging suite',
     'Confirm depressed slab limits for the MRI room shielding assembly.',
     hmpSheets['S-100'], 'open', null, 'D. Okafor — Summit Concrete', 41, 57,
     '2026-07-16T10:00:00Z', '2026-07-16T10:00:00Z');
-  insertBid.run(harborview, companies['Summit Concrete'], 'Concrete', 298_500_000, 'Excludes site retaining walls.', 'submitted', '2026-07-15T19:40:00Z');
-  insertBid.run(harborview, companies['Coastal Electric'], 'Electrical', 162_000_000, null, 'submitted', '2026-07-17T15:12:00Z');
-  insertBid.run(harborview, companies['Northgate Roofing'], 'Roofing', 48_750_000, 'TPO alternate included.', 'submitted', '2026-07-18T13:25:00Z');
+  await insertBid.run(harborview, companies['Summit Concrete'], 'Concrete', 298_500_000, 'Excludes site retaining walls.', 'submitted', '2026-07-15T19:40:00Z');
+  await insertBid.run(harborview, companies['Coastal Electric'], 'Electrical', 162_000_000, null, 'submitted', '2026-07-17T15:12:00Z');
+  await insertBid.run(harborview, companies['Northgate Roofing'], 'Roofing', 48_750_000, 'TPO alternate included.', 'submitted', '2026-07-18T13:25:00Z');
 
   // --- Project 3: Elm Street Parking Structure (bidding closed, award made) ---
-  const elm = insertProject.run('Elm Street Parking Structure', 'ESP-2026', 'awarded', '2026-06-12', 0).lastInsertRowid;
-  addSheets(elm, [
+  const elm = (await insertProject.run('Elm Street Parking Structure', 'ESP-2026', 'awarded', '2026-06-12', 0)).lastInsertRowid;
+  await addSheets(elm, [
     { number: 'A-110', title: 'Plaza Level Plan', discipline: 'Architectural', issued: '2026-04-06' },
     { number: 'S-110', title: 'Precast Framing Plan', discipline: 'Structural',
       revs: [{ rev: 1, issued: '2026-04-06' }, { rev: 2, issued: '2026-05-20' }] },
     { number: 'C-110', title: 'Site & Utility Plan', discipline: 'Civil', issued: '2026-04-06' },
   ]);
-  insertBid.run(elm, companies['Summit Concrete'], 'Concrete', 411_000_000, null, 'awarded', '2026-06-05T16:30:00Z');
-  insertBid.run(elm, companies['Alvarez Steel'], 'Steel', 87_200_000, null, 'final_list', '2026-06-08T14:00:00Z');
-  insertBid.run(elm, companies['Coastal Electric'], 'Electrical', 54_900_000, null, 'declined', '2026-06-09T11:45:00Z');
+  await insertBid.run(elm, companies['Summit Concrete'], 'Concrete', 411_000_000, null, 'awarded', '2026-06-05T16:30:00Z');
+  await insertBid.run(elm, companies['Alvarez Steel'], 'Steel', 87_200_000, null, 'final_list', '2026-06-08T14:00:00Z');
+  await insertBid.run(elm, companies['Coastal Electric'], 'Electrical', 54_900_000, null, 'declined', '2026-06-09T11:45:00Z');
 
   // Reminder rows for every project (already-due ones stay unsent until the
   // automation sweep — POST /api/reminders/run — picks them up).
   for (const id of [meridian, harborview, elm]) {
-    syncReminders(db, db.prepare('SELECT * FROM projects WHERE id = ?').get(id));
+    await syncReminders(db, await db.prepare('SELECT * FROM projects WHERE id = ?').get(id));
   }
 
   return {
     seeded: true,
-    projects: db.prepare('SELECT COUNT(*) c FROM projects').get().c,
-    sheets: db.prepare('SELECT COUNT(*) c FROM sheets').get().c,
-    rfis: db.prepare('SELECT COUNT(*) c FROM rfis').get().c,
-    bids: db.prepare('SELECT COUNT(*) c FROM bids').get().c,
-    companies: db.prepare('SELECT COUNT(*) c FROM companies').get().c,
+    projects: (await db.prepare('SELECT COUNT(*) c FROM projects').get()).c,
+    sheets: (await db.prepare('SELECT COUNT(*) c FROM sheets').get()).c,
+    rfis: (await db.prepare('SELECT COUNT(*) c FROM rfis').get()).c,
+    bids: (await db.prepare('SELECT COUNT(*) c FROM bids').get()).c,
+    companies: (await db.prepare('SELECT COUNT(*) c FROM companies').get()).c,
   };
 }
 
 if (require.main === module) {
-  const db = openDb();
-  const result = seed(db, { force: process.argv.includes('--force') || process.env.MDC_SEED_FORCE === '1' });
-  console.log(result.seeded ? `Seeded: ${JSON.stringify(result)}` : result.reason);
-  process.exitCode = result.seeded ? 0 : 1;
+  (async () => {
+    const db = await openStorage();
+    const result = await seed(db, { force: process.argv.includes('--force') || process.env.MDC_SEED_FORCE === '1' });
+    console.log(result.seeded ? `Seeded (${db.dialect}): ${JSON.stringify(result)}` : result.reason);
+    process.exitCode = result.seeded ? 0 : 1;
+  })().catch((err) => { console.error(err); process.exitCode = 1; });
 }
 
 module.exports = { seed };

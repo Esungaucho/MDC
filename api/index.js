@@ -1,29 +1,27 @@
 'use strict';
 
-// Vercel serverless entry point. Wraps the same app the standalone server
-// runs, but keeps SQLite in /tmp — the only writable path in a serverless
-// function — and seeds it on cold start so the demo always has data.
+// Vercel serverless entry point.
 //
-// NOTE: /tmp is per-instance and ephemeral. Data entered on the deployed demo
-// lasts only as long as the warm instance. Point MDC_DB (or swap the storage
-// layer) at a hosted database before real bid/RFI entry moves here.
+// With DATABASE_URL set (Neon Postgres attached via the Vercel Storage tab)
+// this runs in production mode: persistent storage, no demo data. Without it,
+// it falls back to demo mode: SQLite in /tmp — the only writable path in a
+// serverless function — seeded on cold start so the demo always has data.
 
 const { buildApp } = require('../server/app');
-const { openDb } = require('../server/db');
+const { openStorage } = require('../server/db');
 const { seed } = require('../server/seed');
 
-let app;
+let appPromise;
 
 function getApp() {
-  if (!app) {
-    const db = openDb(process.env.MDC_DB || '/tmp/planroom.db');
-    // Demo mode only: with no persistent database attached (DATABASE_URL
-    // unset), the ephemeral store is seeded so the app always has data.
-    // Once DATABASE_URL is configured, production starts and stays clean.
-    if (!process.env.DATABASE_URL) seed(db);
-    app = buildApp(db);
-  }
-  return app;
+  appPromise ??= (async () => {
+    const db = await openStorage(
+      process.env.DATABASE_URL ? {} : { dbPath: process.env.MDC_DB || '/tmp/planroom.db' }
+    );
+    if (db.dialect === 'sqlite') await seed(db); // demo mode only; no-op if already seeded
+    return buildApp(db);
+  })();
+  return appPromise;
 }
 
-module.exports = (req, res) => getApp().handle(req, res);
+module.exports = async (req, res) => (await getApp()).handle(req, res);

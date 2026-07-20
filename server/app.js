@@ -4,7 +4,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { openDb } = require('./db');
+const { openStorage } = require('./db');
 const { createApp } = require('./web');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -12,7 +12,7 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 function buildApp(db) {
   const app = createApp();
 
-  app.get('/api/health', () => ({ ok: true, service: 'mdc-plan-room' }));
+  app.get('/api/health', () => ({ ok: true, service: 'mdc-plan-room', storage: db.dialect }));
 
   require('./routes/projects').register(app, db);
   require('./routes/sheets').register(app, db);
@@ -33,8 +33,8 @@ function buildApp(db) {
   return app;
 }
 
-function createServer({ dbPath } = {}) {
-  const db = openDb(dbPath);
+async function createServer({ dbPath } = {}) {
+  const db = await openStorage({ dbPath });
   const app = buildApp(db);
   const server = http.createServer((req, res) => app.handle(req, res));
   return { server, db };

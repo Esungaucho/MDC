@@ -52,12 +52,6 @@ function toBool(value, fallback = false) {
   return Boolean(value);
 }
 
-function getProjectOr404(db, id) {
-  const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(Number(id));
-  if (!row) throw new ApiError(404, 'project_not_found', `No project with id ${id}`);
-  return row;
-}
-
 function biddingOpen(project, asOf = today()) {
   // Mirrors the Plan Room UI: bidding closes ON the go-hard date.
   return Boolean(project.go_hard_date) && asOf < project.go_hard_date;
@@ -70,6 +64,5 @@ module.exports = {
   requireString,
   parseAmountCents,
   toBool,
-  getProjectOr404,
   biddingOpen,
 };

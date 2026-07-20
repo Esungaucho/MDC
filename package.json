@@ -11,6 +11,9 @@
   "engines": {
     "node": ">=22.5"
   },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4"
+  },
   "license": "UNLICENSED",
   "private": true
 }

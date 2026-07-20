@@ -1,9 +1,8 @@
 'use strict';
 
 const { ApiError, created } = require('../web');
-const {
-  requireString, parseAmountCents, toBool, getProjectOr404, biddingOpen,
-} = require('../util');
+const { requireString, parseAmountCents, toBool, biddingOpen } = require('../util');
+const { getProjectOr404 } = require('./projects');
 
 const BID_STATUSES = ['submitted', 'final_list', 'awarded', 'declined'];
 
@@ -21,8 +20,8 @@ function companyJson(row) {
   };
 }
 
-function bidJson(db, row) {
-  const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(row.company_id);
+async function bidJson(db, row) {
+  const company = await db.prepare('SELECT * FROM companies WHERE id = ?').get(row.company_id);
   return {
     id: row.id,
     projectId: row.project_id,
@@ -36,25 +35,25 @@ function bidJson(db, row) {
 }
 
 function findCompanyByName(db, name) {
-  return db.prepare('SELECT * FROM companies WHERE name = ? COLLATE NOCASE').get(name.trim());
+  return db.prepare('SELECT * FROM companies WHERE LOWER(name) = LOWER(?)').get(name.trim());
 }
 
 function register(app, db) {
   // --- Subcontractor directory ---
 
-  app.get('/api/companies', ({ query }) => {
+  app.get('/api/companies', async ({ query }) => {
     const q = query.get('query');
-    let rows = db.prepare('SELECT * FROM companies ORDER BY name').all();
+    let rows = await db.prepare('SELECT * FROM companies ORDER BY name').all();
     if (q) rows = rows.filter((r) => r.name.toLowerCase().includes(q.toLowerCase()));
     if (query.get('inDirectory') === 'true') rows = rows.filter((r) => r.in_directory);
     return rows.map(companyJson);
   });
 
   // Directory status check used by the bid form as the company name is typed.
-  app.get('/api/companies/check', ({ query }) => {
+  app.get('/api/companies/check', async ({ query }) => {
     const name = query.get('name');
     if (!name || !name.trim()) throw new ApiError(422, 'missing_field', 'name query param is required');
-    const row = findCompanyByName(db, name);
+    const row = await findCompanyByName(db, name);
     return {
       name: name.trim(),
       known: Boolean(row),
@@ -66,22 +65,23 @@ function register(app, db) {
     };
   });
 
-  app.post('/api/companies', ({ body }) => {
+  app.post('/api/companies', async ({ body }) => {
     const name = requireString(body, 'name');
-    if (findCompanyByName(db, name)) {
+    if (await findCompanyByName(db, name)) {
       throw new ApiError(409, 'duplicate_company', `Company ${name} already exists`);
     }
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO companies (name, trade, contact_name, email, phone, in_directory, w9_received, coi_received)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(name, body.trade || null, body.contactName || null, body.email || null,
       body.phone || null, toBool(body.inDirectory) ? 1 : 0,
       toBool(body.w9Received) ? 1 : 0, toBool(body.coiReceived) ? 1 : 0);
-    return created(companyJson(db.prepare('SELECT * FROM companies WHERE id = ?').get(result.lastInsertRowid)));
+    return created(companyJson(
+      await db.prepare('SELECT * FROM companies WHERE id = ?').get(result.lastInsertRowid)));
   });
 
-  app.patch('/api/companies/:id', ({ params, body }) => {
-    const row = db.prepare('SELECT * FROM companies WHERE id = ?').get(Number(params.id));
+  app.patch('/api/companies/:id', async ({ params, body }) => {
+    const row = await db.prepare('SELECT * FROM companies WHERE id = ?').get(Number(params.id));
     if (!row) throw new ApiError(404, 'company_not_found', `No company with id ${params.id}`);
     const map = {
       trade: 'trade', contactName: 'contact_name', email: 'email', phone: 'phone',
@@ -98,24 +98,26 @@ function register(app, db) {
       throw new ApiError(422, 'no_updates', 'No updatable fields provided');
     }
     const sets = Object.keys(updates).map((k) => `${k} = ?`).join(', ');
-    db.prepare(`UPDATE companies SET ${sets} WHERE id = ?`).run(...Object.values(updates), row.id);
-    return companyJson(db.prepare('SELECT * FROM companies WHERE id = ?').get(row.id));
+    await db.prepare(`UPDATE companies SET ${sets} WHERE id = ?`).run(...Object.values(updates), row.id);
+    return companyJson(await db.prepare('SELECT * FROM companies WHERE id = ?').get(row.id));
   });
 
   // --- Bids ---
 
-  app.get('/api/projects/:id/bids', ({ params, query }) => {
-    const project = getProjectOr404(db, params.id);
-    let rows = db.prepare('SELECT * FROM bids WHERE project_id = ? ORDER BY submitted_at DESC, id DESC')
+  app.get('/api/projects/:id/bids', async ({ params, query }) => {
+    const project = await getProjectOr404(db, params.id);
+    let rows = await db.prepare('SELECT * FROM bids WHERE project_id = ? ORDER BY submitted_at DESC, id DESC')
       .all(project.id);
     const status = query.get('status');
     if (status) rows = rows.filter((r) => r.status === status);
-    return rows.map((r) => bidJson(db, r));
+    const out = [];
+    for (const r of rows) out.push(await bidJson(db, r));
+    return out;
   });
 
   // Bid submittal — enforces the go-hard date and the new-vendor W-9/COI rule.
-  app.post('/api/projects/:id/bids', ({ params, body }) => {
-    const project = getProjectOr404(db, params.id);
+  app.post('/api/projects/:id/bids', async ({ params, body }) => {
+    const project = await getProjectOr404(db, params.id);
     if (!biddingOpen(project)) {
       throw new ApiError(409, 'bidding_closed',
         `Bidding closed on the go-hard date (${project.go_hard_date ?? 'not set'}). New bid submittals can no longer be entered.`);
@@ -124,7 +126,7 @@ function register(app, db) {
     const trade = requireString(body, 'trade');
     const amountCents = parseAmountCents(body);
 
-    let company = findCompanyByName(db, companyName);
+    let company = await findCompanyByName(db, companyName);
     const w9 = toBool(body.w9Uploaded, Boolean(company && company.w9_received));
     const coi = toBool(body.coiUploaded, Boolean(company && company.coi_received));
     const inDirectory = Boolean(company && company.in_directory);
@@ -135,18 +137,18 @@ function register(app, db) {
     }
 
     if (!company) {
-      const result = db.prepare(`
+      const result = await db.prepare(`
         INSERT INTO companies (name, trade, contact_name, email, phone, in_directory, w9_received, coi_received)
         VALUES (?, ?, ?, ?, ?, 0, ?, ?)
       `).run(companyName, trade, body.contactName || null, body.email || null,
         body.phone || null, w9 ? 1 : 0, coi ? 1 : 0);
-      company = db.prepare('SELECT * FROM companies WHERE id = ?').get(result.lastInsertRowid);
+      company = await db.prepare('SELECT * FROM companies WHERE id = ?').get(result.lastInsertRowid);
     } else {
-      db.prepare('UPDATE companies SET w9_received = ?, coi_received = ? WHERE id = ?')
+      await db.prepare('UPDATE companies SET w9_received = ?, coi_received = ? WHERE id = ?')
         .run(w9 ? 1 : 0, coi ? 1 : 0, company.id);
     }
 
-    const dup = db.prepare(
+    const dup = await db.prepare(
       'SELECT id FROM bids WHERE project_id = ? AND company_id = ? AND trade = ?'
     ).get(project.id, company.id, trade);
     if (dup) {
@@ -154,16 +156,17 @@ function register(app, db) {
         `${companyName} already has a ${trade} bid on this project`);
     }
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO bids (project_id, company_id, trade, amount_cents, notes)
       VALUES (?, ?, ?, ?, ?)
     `).run(project.id, company.id, trade, amountCents, body.notes || null);
-    return created(bidJson(db, db.prepare('SELECT * FROM bids WHERE id = ?').get(result.lastInsertRowid)));
+    return created(await bidJson(db,
+      await db.prepare('SELECT * FROM bids WHERE id = ?').get(result.lastInsertRowid)));
   });
 
   // Status moves: submitted ↔ final_list (the "Final Bid List"), awarded, declined.
-  app.patch('/api/bids/:id', ({ params, body }) => {
-    const row = db.prepare('SELECT * FROM bids WHERE id = ?').get(Number(params.id));
+  app.patch('/api/bids/:id', async ({ params, body }) => {
+    const row = await db.prepare('SELECT * FROM bids WHERE id = ?').get(Number(params.id));
     if (!row) throw new ApiError(404, 'bid_not_found', `No bid with id ${params.id}`);
     const updates = {};
     if (body.status !== undefined) {
@@ -180,8 +183,8 @@ function register(app, db) {
       throw new ApiError(422, 'no_updates', 'No updatable fields provided');
     }
     const sets = Object.keys(updates).map((k) => `${k} = ?`).join(', ');
-    db.prepare(`UPDATE bids SET ${sets} WHERE id = ?`).run(...Object.values(updates), row.id);
-    return bidJson(db, db.prepare('SELECT * FROM bids WHERE id = ?').get(row.id));
+    await db.prepare(`UPDATE bids SET ${sets} WHERE id = ?`).run(...Object.values(updates), row.id);
+    return bidJson(db, await db.prepare('SELECT * FROM bids WHERE id = ?').get(row.id));
   });
 }
 

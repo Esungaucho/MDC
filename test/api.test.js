@@ -10,8 +10,8 @@ const { seed } = require('../server/seed');
 // reminder schedules are deterministic.
 process.env.MDC_TODAY = '2026-07-20';
 
-function boot() {
-  const { server, db } = createServer({ dbPath: ':memory:' });
+async function boot() {
+  const { server, db } = await createServer({ dbPath: ':memory:' });
   return new Promise((resolve) => {
     server.listen(0, () => {
       const base = `http://localhost:${server.address().port}`;
@@ -34,7 +34,7 @@ let fresh;  // empty server for CRUD tests
 
 before(async () => {
   seeded = await boot();
-  seed(seeded.db);
+  await seed(seeded.db);
   fresh = await boot();
 });
 
@@ -91,8 +91,8 @@ test('pipeline rolls up all projects', async () => {
   assert.deepEqual(body.breakdowns.rfisByStatus, { open: 2, answered: 1, closed: 1 });
 });
 
-test('seed refuses to run twice without force', () => {
-  const result = seed(seeded.db);
+test('seed refuses to run twice without force', async () => {
+  const result = await seed(seeded.db);
   assert.equal(result.seeded, false);
 });
 
@@ -113,6 +113,18 @@ test('project create schedules reminders from go-hard date', async () => {
   await fresh.request('PATCH', `/api/projects/${body.id}`, { goHardDate: '2026-09-01' });
   const rem2 = (await fresh.request('GET', `/api/projects/${body.id}/reminders`)).body;
   assert.deepEqual(rem2.map((r) => r.scheduledFor).sort(), ['2026-08-25', '2026-08-29']);
+});
+
+test('project delete cascades', async () => {
+  const proj = (await fresh.request('POST', '/api/projects', {
+    name: 'Doomed', code: 'DEL-1', goHardDate: '2026-12-01',
+  })).body;
+  await fresh.request('POST', `/api/projects/${proj.id}/sheets`, {
+    sheetNumber: 'X-1', title: 'Sheet', discipline: 'Architectural',
+  });
+  const del = await fresh.request('DELETE', `/api/projects/${proj.id}`);
+  assert.equal(del.status, 200);
+  assert.equal((await fresh.request('GET', `/api/projects/${proj.id}`)).status, 404);
 });
 
 test('duplicate project code is rejected', async () => {
