@@ -47,9 +47,17 @@ function parseAmountCents(body) {
   return Math.round(n * 100);
 }
 
+// Spreadsheet placeholders that mean "no value": blank, NA, N/A, TBD, dashes.
+const NA_TOKENS = new Set(['na', 'n/a', 'n.a.', 'none', 'tbd', '-', '--', '—']);
+function isBlankLike(v) {
+  return v === undefined || v === null
+    || (typeof v === 'string' && (v.trim() === '' || NA_TOKENS.has(v.trim().toLowerCase())));
+}
+
 // Reads a named money field from a body: `${key}Cents` (integer) wins,
 // otherwise `${key}` as dollars ("$460,474.37" or 460474.37). Returns
-// undefined when neither is present, null when explicitly cleared.
+// undefined when neither is present, null when explicitly cleared or a
+// blank/NA-style placeholder.
 function parseMoneyField(body, key) {
   const cents = body[`${key}Cents`];
   if (cents !== undefined && cents !== null) {
@@ -58,9 +66,9 @@ function parseMoneyField(body, key) {
     }
     return cents;
   }
+  if (!(key in body)) return undefined;
   const v = body[key];
-  if (v === undefined) return undefined;
-  if (v === null || v === '') return null;
+  if (isBlankLike(v)) return null;
   const n = Number(String(v).replace(/[$,\s]/g, ''));
   if (!Number.isFinite(n) || n < 0) {
     throw new ApiError(422, 'invalid_amount', `Could not parse ${key} ${JSON.stringify(v)}`);
@@ -85,6 +93,7 @@ module.exports = {
   requireString,
   parseAmountCents,
   parseMoneyField,
+  isBlankLike,
   toBool,
   biddingOpen,
 };

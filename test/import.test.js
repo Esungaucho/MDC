@@ -176,6 +176,42 @@ test('imports CSV text with headers in a different column order', async () => {
   assert.equal(lofts.proposalAmountCents, 70_000_000);
 });
 
+test('NA and placeholder cells import as empty values, not errors', async () => {
+  const csv = [
+    'Project Name,Phase,Category,Proposal Amount,Final Contract Amount,Bid Due Date,Site Visit Date,Notes',
+    'Placeholder Job,Lost,Commercial New,"$54,375.00",NA,TBD,N/A,-',
+  ].join('\n');
+  const { status, body } = await srv.upload(Buffer.from(csv));
+  assert.equal(status, 200);
+  assert.equal(body.created, 1);
+  assert.equal(body.failed.length, 0);
+
+  const projects = await srv.get('/api/projects');
+  const job = projects.find((p) => p.name === 'Placeholder Job');
+  assert.equal(job.proposalAmountCents, 5_437_500);
+  assert.equal(job.finalContractAmountCents, null);
+  assert.equal(job.goHardDate, null);
+  assert.equal(job.siteVisitDate, null);
+  assert.equal(job.notes, null);
+
+  // A lost project with an NA final contract still counts its proposal in
+  // win-loss (matching the source spreadsheet's math).
+  const pipeline = await srv.get('/api/pipeline');
+  const lost = pipeline.breakdowns.winLoss.rows.find((r) => r.phase === 'lost');
+  assert.equal(lost.valueCents, 5_437_500);
+
+  // The same placeholders in an .xlsx workbook, plus an NA phase → Bidding.
+  const xlsx = buildXlsx([
+    ['Project Name', 'Phase', 'Proposal Amount', 'Bid Due Date'],
+    ['Xlsx NA Job', 'NA', 'N/A', 'TBD'],
+  ]);
+  const second = await srv.upload(xlsx);
+  assert.equal(second.body.created, 1);
+  const naJob = (await srv.get('/api/projects')).find((p) => p.name === 'Xlsx NA Job');
+  assert.equal(naJob.phase, 'bidding');
+  assert.equal(naJob.proposalAmountCents, null);
+});
+
 test('rejects an empty upload', async () => {
   const { status } = await srv.upload(Buffer.alloc(0));
   assert.equal(status, 422);

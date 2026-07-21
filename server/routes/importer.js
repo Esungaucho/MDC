@@ -8,6 +8,7 @@
 
 const { ApiError } = require('../web');
 const { readFirstSheet, excelSerialToIsoDate } = require('../xlsx');
+const { isBlankLike } = require('../util');
 const { createProject } = require('./projects');
 
 // normalized header → API field. null = recognized but intentionally dropped.
@@ -56,6 +57,7 @@ function normalizeHeader(text) {
 }
 
 function phaseSlug(text) {
+  if (isBlankLike(text)) return 'bidding';
   const key = String(text ?? '').toLowerCase().replace(/[^a-z]+/g, ' ').trim();
   const map = {
     '': 'bidding',
@@ -76,14 +78,15 @@ function phaseSlug(text) {
   return map[key] ?? null;
 }
 
+// Lenient date conversion for imports: Excel serials and common formats
+// convert; anything unparseable (NA, TBD, stray text) becomes "no value"
+// rather than failing the row.
 function toIsoDate(value) {
   if (typeof value === 'number') return excelSerialToIsoDate(value);
   const s = String(value).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const d = new Date(s);
-  if (Number.isNaN(d.getTime())) {
-    throw new ApiError(422, 'invalid_date', `Could not parse date ${JSON.stringify(s)}`);
-  }
+  if (Number.isNaN(d.getTime())) return null;
   // Interpret bare dates like "8/17/2026" in local time, then take the date.
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
@@ -138,10 +141,19 @@ function rowToBody(row, fields) {
   const body = {};
   fields.forEach((field, i) => {
     const value = row[i];
-    if (!field || value === null || value === undefined || value === '') return;
-    if (DATE_FIELDS.has(field)) body[field] = toIsoDate(value);
-    else if (MONEY_FIELDS.has(field) && typeof value === 'number') {
-      body[`${field}Cents`] = Math.round(value * 100);
+    // Blank and NA/TBD-style placeholder cells simply carry no value.
+    if (!field || isBlankLike(value)) return;
+    if (DATE_FIELDS.has(field)) {
+      const iso = toIsoDate(value);
+      if (iso) body[field] = iso;
+    } else if (MONEY_FIELDS.has(field)) {
+      if (typeof value === 'number') {
+        if (Number.isFinite(value) && value >= 0) body[`${field}Cents`] = Math.round(value * 100);
+      } else {
+        const n = Number(String(value).replace(/[$,\s]/g, ''));
+        if (Number.isFinite(n) && n >= 0) body[`${field}Cents`] = Math.round(n * 100);
+        // otherwise: unparseable placeholder text — treat as no value
+      }
     } else body[field] = String(value).trim();
   });
   return body;

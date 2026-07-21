@@ -2,7 +2,7 @@
 
 const { ApiError, created } = require('../web');
 const {
-  today, requireIsoDate, shiftDays, requireString, toBool, biddingOpen, parseMoneyField,
+  today, requireIsoDate, shiftDays, requireString, toBool, biddingOpen, parseMoneyField, isBlankLike,
 } = require('../util');
 
 // Project lifecycle phases (the pipeline taxonomy). The legacy `status`
@@ -59,11 +59,11 @@ const DATE_FIELDS = {
 function collectDetailFields(body) {
   const updates = {};
   for (const [key, col] of Object.entries(TEXT_FIELDS)) {
-    if (body[key] !== undefined) updates[col] = body[key] || null;
+    if (body[key] !== undefined) updates[col] = isBlankLike(body[key]) ? null : body[key];
   }
   for (const [key, col] of Object.entries(DATE_FIELDS)) {
     if (body[key] !== undefined) {
-      updates[col] = body[key] ? requireIsoDate(body[key], key) : null;
+      updates[col] = isBlankLike(body[key]) ? null : requireIsoDate(body[key], key);
     }
   }
   return updates;
@@ -164,7 +164,7 @@ async function createProject(db, body) {
   }
   const proposal = parseMoneyField(body, 'proposalAmount');
   const finalContract = parseMoneyField(body, 'finalContractAmount');
-  const goHardDate = body.goHardDate ? requireIsoDate(body.goHardDate, 'goHardDate') : null;
+  const goHardDate = isBlankLike(body.goHardDate) ? null : requireIsoDate(body.goHardDate, 'goHardDate');
   const dup = await db.prepare('SELECT id FROM projects WHERE code = ?').get(code);
   if (dup) throw new ApiError(409, 'duplicate_code', `Project code ${code} already exists`);
   const result = await db.prepare(`
@@ -227,7 +227,7 @@ function register(app, db) {
     const finalContract = parseMoneyField(body, 'finalContractAmount');
     if (finalContract !== undefined) updates.final_contract_amount_cents = finalContract;
     if (body.goHardDate !== undefined) {
-      updates.go_hard_date = body.goHardDate === null
+      updates.go_hard_date = isBlankLike(body.goHardDate)
         ? null
         : requireIsoDate(body.goHardDate, 'goHardDate');
     }

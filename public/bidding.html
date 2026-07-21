@@ -356,8 +356,14 @@
 
   // Maps a spreadsheet phase label ("Awarded - Closed", "Client Withdraw"…)
   // to its slug; unknown values return null so the row can be reported.
+  // Placeholder cells ("NA", "N/A", "TBD", dashes) count as blank.
+  const NA_TOKENS = ['na', 'n/a', 'n.a.', 'none', 'tbd', '-', '--', '—'];
+  function cleanCell(v) {
+    const s = String(v ?? '').trim();
+    return s === '' || NA_TOKENS.includes(s.toLowerCase()) ? '' : s;
+  }
   function phaseSlug(text) {
-    const key = String(text || '').toLowerCase().replace(/[^a-z]+/g, ' ').trim();
+    const key = cleanCell(text).toLowerCase().replace(/[^a-z]+/g, ' ').trim();
     const map = {
       '': 'bidding',
       'initiation': 'initiation',
@@ -456,7 +462,8 @@
   function toIsoDate(s) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
     const d = new Date(s);
-    return Number.isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10);
+    // Unparseable dates are dropped rather than failing the row.
+    return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
   }
   function codeFromName(name) {
     const initials = name.split(/\s+/).map((w) => w[0]).join('').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
@@ -467,7 +474,7 @@
     const results = { ok: 0, failed: [] };
     $('import-status').textContent = '';
     for (let i = 0; i < lines.length; i++) {
-      const cols = (lines[i].includes('\t') ? lines[i].split('\t') : lines[i].split(',')).map((c) => c.trim());
+      const cols = (lines[i].includes('\t') ? lines[i].split('\t') : lines[i].split(',')).map(cleanCell);
       // The pipeline spreadsheet's column order. Owner contact and address
       // columns are read positionally but intentionally never sent anywhere.
       const [name, phaseText, notes, priority, category, account, /* owner name */, /* owner email */,
@@ -481,7 +488,9 @@
         results.failed.push(`"${name}": unknown phase "${phaseText}"`);
         continue;
       }
-      const date = (v) => (v ? toIsoDate(v) : undefined);
+      const date = (v) => (v && toIsoDate(v)) || undefined;
+      // Money cells that don't parse as numbers (leftover text) are dropped.
+      const money = (v) => (v && Number.isFinite(Number(v.replace(/[$,\s]/g, ''))) ? v : undefined);
       try {
         await api('POST', '/api/projects', {
           name,
@@ -496,8 +505,8 @@
           rfiDate: date(rfiDate),
           goHardDate: date(bidDue),
           proposalSubmittedDate: date(proposalSubmitted),
-          proposalAmount: proposal || undefined,
-          finalContractAmount: finalAmt || undefined,
+          proposalAmount: money(proposal),
+          finalContractAmount: money(finalAmt),
           proposalNotes: proposalNotes || undefined,
         });
         results.ok++;
