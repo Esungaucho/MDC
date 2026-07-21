@@ -117,7 +117,8 @@ test('phase and category rollups', async () => {
   assert.deepEqual(b.projectsByCategory.postAward.phases, ['awarded_closed']);
   assert.equal(b.projectsByCategory.postAward.rows[0].byPhase.awarded_closed, 44_972_437);
 
-  // Full spreadsheet detail fields round-trip.
+  // Full spreadsheet detail fields round-trip. Owner contact and address are
+  // proprietary and intentionally not stored — sending them is a no-op.
   const detailed = (await fresh.request('POST', '/api/projects', {
     name: 'Detail Test', code: 'DT-1', phase: 'initiation',
     category: 'Residential Renovation', priority: 'High', account: 'Acme Holdings',
@@ -128,7 +129,9 @@ test('phase and category rollups', async () => {
     proposalAmount: '$462,000.00', proposalNotes: 'Includes alternates',
   })).body;
   assert.equal(detailed.account, 'Acme Holdings');
-  assert.equal(detailed.ownerEmail, 'j@acme.com');
+  assert.equal(detailed.ownerEmail, undefined);
+  assert.equal(detailed.ownerName, undefined);
+  assert.equal(detailed.address, undefined);
   assert.equal(detailed.siteVisitDate, '2026-06-10');
   assert.equal(detailed.proposalAmountCents, 46_200_000);
   const fetched = (await fresh.request('GET', `/api/projects/${detailed.id}`)).body;

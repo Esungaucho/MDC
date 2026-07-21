@@ -47,10 +47,6 @@ const TEXT_FIELDS = {
   notes: 'notes',
   priority: 'priority',
   account: 'account',
-  ownerName: 'owner_name',
-  ownerEmail: 'owner_email',
-  ownerPhone: 'owner_phone',
-  address: 'address',
   proposalNotes: 'proposal_notes',
 };
 const DATE_FIELDS = {
@@ -107,10 +103,6 @@ function projectJson(row) {
     notes: row.notes,
     priority: row.priority,
     account: row.account,
-    ownerName: row.owner_name,
-    ownerEmail: row.owner_email,
-    ownerPhone: row.owner_phone,
-    address: row.address,
     initialContactDate: row.initial_contact_date,
     siteVisitDate: row.site_visit_date,
     rfiDate: row.rfi_date,

@@ -34,10 +34,6 @@ function schemaStatements(dialect) {
       notes TEXT,
       priority TEXT,
       account TEXT,
-      owner_name TEXT,
-      owner_email TEXT,
-      owner_phone TEXT,
-      address TEXT,
       initial_contact_date TEXT,
       site_visit_date TEXT,
       rfi_date TEXT,
@@ -53,12 +49,16 @@ function schemaStatements(dialect) {
     ...[
       'phase TEXT', 'category TEXT', 'proposal_amount_cents INTEGER',
       'final_contract_amount_cents INTEGER', 'notes TEXT', 'priority TEXT',
-      'account TEXT', 'owner_name TEXT', 'owner_email TEXT', 'owner_phone TEXT',
-      'address TEXT', 'initial_contact_date TEXT', 'site_visit_date TEXT',
+      'account TEXT', 'initial_contact_date TEXT', 'site_visit_date TEXT',
       'rfi_date TEXT', 'proposal_submitted_date TEXT', 'proposal_notes TEXT',
     ].map((col) => (pg
       ? `ALTER TABLE projects ADD COLUMN IF NOT EXISTS ${col}`
       : `ALTER TABLE projects ADD COLUMN ${col}`)),
+    // Owner contact and address fields were removed as proprietary data —
+    // drop them (and any values) from databases that had them.
+    ...['owner_name', 'owner_email', 'owner_phone', 'address'].map((col) => (pg
+      ? `ALTER TABLE projects DROP COLUMN IF EXISTS ${col}`
+      : `ALTER TABLE projects DROP COLUMN ${col}`)),
     `CREATE TABLE IF NOT EXISTS sheets (
       ${ID},
       project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -168,8 +168,9 @@ class SqliteDb {
       try {
         this.raw.exec(stmt);
       } catch (err) {
-        // SQLite has no ADD COLUMN IF NOT EXISTS; ignore re-run migrations.
-        if (!/duplicate column name/i.test(err.message)) throw err;
+        // SQLite has no IF [NOT] EXISTS on ALTER COLUMN; ignore re-run
+        // migrations (column already added, or already dropped).
+        if (!/duplicate column name|no such column/i.test(err.message)) throw err;
       }
     }
   }
