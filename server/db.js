@@ -31,6 +31,18 @@ function schemaStatements(dialect) {
       category TEXT,
       proposal_amount_cents INTEGER,
       final_contract_amount_cents INTEGER,
+      notes TEXT,
+      priority TEXT,
+      account TEXT,
+      owner_name TEXT,
+      owner_email TEXT,
+      owner_phone TEXT,
+      address TEXT,
+      initial_contact_date TEXT,
+      site_visit_date TEXT,
+      rfi_date TEXT,
+      proposal_submitted_date TEXT,
+      proposal_notes TEXT,
       go_hard_date TEXT,
       reminders_automated INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT ${NOW}
@@ -38,17 +50,15 @@ function schemaStatements(dialect) {
     // Migrations for databases created before these columns existed. Postgres
     // supports IF NOT EXISTS; the SQLite backend swallows duplicate-column
     // errors in init() instead.
-    ...(pg ? [
-      'ALTER TABLE projects ADD COLUMN IF NOT EXISTS phase TEXT',
-      'ALTER TABLE projects ADD COLUMN IF NOT EXISTS category TEXT',
-      'ALTER TABLE projects ADD COLUMN IF NOT EXISTS proposal_amount_cents INTEGER',
-      'ALTER TABLE projects ADD COLUMN IF NOT EXISTS final_contract_amount_cents INTEGER',
-    ] : [
-      'ALTER TABLE projects ADD COLUMN phase TEXT',
-      'ALTER TABLE projects ADD COLUMN category TEXT',
-      'ALTER TABLE projects ADD COLUMN proposal_amount_cents INTEGER',
-      'ALTER TABLE projects ADD COLUMN final_contract_amount_cents INTEGER',
-    ]),
+    ...[
+      'phase TEXT', 'category TEXT', 'proposal_amount_cents INTEGER',
+      'final_contract_amount_cents INTEGER', 'notes TEXT', 'priority TEXT',
+      'account TEXT', 'owner_name TEXT', 'owner_email TEXT', 'owner_phone TEXT',
+      'address TEXT', 'initial_contact_date TEXT', 'site_visit_date TEXT',
+      'rfi_date TEXT', 'proposal_submitted_date TEXT', 'proposal_notes TEXT',
+    ].map((col) => (pg
+      ? `ALTER TABLE projects ADD COLUMN IF NOT EXISTS ${col}`
+      : `ALTER TABLE projects ADD COLUMN ${col}`)),
     `CREATE TABLE IF NOT EXISTS sheets (
       ${ID},
       project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

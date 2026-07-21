@@ -117,6 +117,28 @@ test('phase and category rollups', async () => {
   assert.deepEqual(b.projectsByCategory.postAward.phases, ['awarded_closed']);
   assert.equal(b.projectsByCategory.postAward.rows[0].byPhase.awarded_closed, 44_972_437);
 
+  // Full spreadsheet detail fields round-trip.
+  const detailed = (await fresh.request('POST', '/api/projects', {
+    name: 'Detail Test', code: 'DT-1', phase: 'initiation',
+    category: 'Residential Renovation', priority: 'High', account: 'Acme Holdings',
+    ownerName: 'J. Smith', ownerEmail: 'j@acme.com', ownerPhone: '(555) 555-0101',
+    address: '12 Main St', notes: 'Referred by architect',
+    initialContactDate: '2026-06-01', siteVisitDate: '2026-06-10',
+    rfiDate: '2026-06-20', proposalSubmittedDate: '2026-07-01',
+    proposalAmount: '$462,000.00', proposalNotes: 'Includes alternates',
+  })).body;
+  assert.equal(detailed.account, 'Acme Holdings');
+  assert.equal(detailed.ownerEmail, 'j@acme.com');
+  assert.equal(detailed.siteVisitDate, '2026-06-10');
+  assert.equal(detailed.proposalAmountCents, 46_200_000);
+  const fetched = (await fresh.request('GET', `/api/projects/${detailed.id}`)).body;
+  assert.equal(fetched.proposalNotes, 'Includes alternates');
+  const patched = (await fresh.request('PATCH', `/api/projects/${detailed.id}`, {
+    priority: 'Low', rfiDate: null,
+  })).body;
+  assert.equal(patched.priority, 'Low');
+  assert.equal(patched.rfiDate, null);
+
   // Phase moves via PATCH update both phase and legacy status.
   const proj = (await fresh.request('POST', '/api/projects', {
     name: 'Phase Test', code: 'PH-1', phase: 'submitted_pending',

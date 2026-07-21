@@ -41,6 +41,38 @@ function effectivePhase(row) {
   return row.phase || STATUS_TO_PHASE[row.status] || 'bidding';
 }
 
+// Optional project detail fields: JSON name → column. Text fields take any
+// string (empty clears); date fields must be YYYY-MM-DD when set.
+const TEXT_FIELDS = {
+  notes: 'notes',
+  priority: 'priority',
+  account: 'account',
+  ownerName: 'owner_name',
+  ownerEmail: 'owner_email',
+  ownerPhone: 'owner_phone',
+  address: 'address',
+  proposalNotes: 'proposal_notes',
+};
+const DATE_FIELDS = {
+  initialContactDate: 'initial_contact_date',
+  siteVisitDate: 'site_visit_date',
+  rfiDate: 'rfi_date',
+  proposalSubmittedDate: 'proposal_submitted_date',
+};
+
+function collectDetailFields(body) {
+  const updates = {};
+  for (const [key, col] of Object.entries(TEXT_FIELDS)) {
+    if (body[key] !== undefined) updates[col] = body[key] || null;
+  }
+  for (const [key, col] of Object.entries(DATE_FIELDS)) {
+    if (body[key] !== undefined) {
+      updates[col] = body[key] ? requireIsoDate(body[key], key) : null;
+    }
+  }
+  return updates;
+}
+
 function requirePhase(value) {
   if (!PHASE_LABELS[value]) {
     throw new ApiError(422, 'invalid_phase', `phase must be one of ${Object.keys(PHASE_LABELS).join('|')}`);
@@ -72,6 +104,18 @@ function projectJson(row) {
     category: row.category,
     proposalAmountCents: row.proposal_amount_cents,
     finalContractAmountCents: row.final_contract_amount_cents,
+    notes: row.notes,
+    priority: row.priority,
+    account: row.account,
+    ownerName: row.owner_name,
+    ownerEmail: row.owner_email,
+    ownerPhone: row.owner_phone,
+    address: row.address,
+    initialContactDate: row.initial_contact_date,
+    siteVisitDate: row.site_visit_date,
+    rfiDate: row.rfi_date,
+    proposalSubmittedDate: row.proposal_submitted_date,
+    proposalNotes: row.proposal_notes,
     goHardDate: row.go_hard_date,
     remindersAutomated: Boolean(row.reminders_automated),
     biddingOpen: biddingOpen(row),
@@ -142,6 +186,12 @@ function register(app, db) {
     `).run(name, code, PHASE_TO_STATUS[phase], phase,
       body.category || null, proposal ?? null, finalContract ?? null,
       goHardDate, toBool(body.remindersAutomated, true) ? 1 : 0);
+    const details = collectDetailFields(body);
+    if (Object.keys(details).length) {
+      const sets = Object.keys(details).map((k) => `${k} = ?`).join(', ');
+      await db.prepare(`UPDATE projects SET ${sets} WHERE id = ?`)
+        .run(...Object.values(details), result.lastInsertRowid);
+    }
     const project = await getProjectOr404(db, result.lastInsertRowid);
     await syncReminders(db, project);
     return created(projectJson(project));
@@ -175,6 +225,7 @@ function register(app, db) {
       updates.phase = STATUS_TO_PHASE[body.status];
     }
     if (body.category !== undefined) updates.category = body.category || null;
+    Object.assign(updates, collectDetailFields(body));
     const proposal = parseMoneyField(body, 'proposalAmount');
     if (proposal !== undefined) updates.proposal_amount_cents = proposal;
     const finalContract = parseMoneyField(body, 'finalContractAmount');
