@@ -19,6 +19,7 @@ function buildApp(db) {
   require('./routes/rfis').register(app, db);
   require('./routes/bids').register(app, db);
   require('./routes/pipeline').register(app, db);
+  require('./routes/importer').register(app, db);
 
   // Static pages: pipeline dashboard and the bidding section.
   const page = (file) => ({ res }) => {

@@ -149,45 +149,49 @@ async function syncReminders(db, project) {
   }
 }
 
+// Creates a project from an API-shaped body; shared by POST /api/projects
+// and the file importer. Returns the created project's JSON.
+async function createProject(db, body) {
+  const name = requireString(body, 'name');
+  const code = requireString(body, 'code');
+  let phase = 'bidding';
+  if (body.phase !== undefined) phase = requirePhase(body.phase);
+  else if (body.status !== undefined) {
+    if (!STATUS_TO_PHASE[body.status]) {
+      throw new ApiError(422, 'invalid_status', `status must be one of ${Object.keys(STATUS_TO_PHASE).join('|')}`);
+    }
+    phase = STATUS_TO_PHASE[body.status];
+  }
+  const proposal = parseMoneyField(body, 'proposalAmount');
+  const finalContract = parseMoneyField(body, 'finalContractAmount');
+  const goHardDate = body.goHardDate ? requireIsoDate(body.goHardDate, 'goHardDate') : null;
+  const dup = await db.prepare('SELECT id FROM projects WHERE code = ?').get(code);
+  if (dup) throw new ApiError(409, 'duplicate_code', `Project code ${code} already exists`);
+  const result = await db.prepare(`
+    INSERT INTO projects (name, code, status, phase, category, proposal_amount_cents,
+                          final_contract_amount_cents, go_hard_date, reminders_automated)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(name, code, PHASE_TO_STATUS[phase], phase,
+    body.category || null, proposal ?? null, finalContract ?? null,
+    goHardDate, toBool(body.remindersAutomated, true) ? 1 : 0);
+  const details = collectDetailFields(body);
+  if (Object.keys(details).length) {
+    const sets = Object.keys(details).map((k) => `${k} = ?`).join(', ');
+    await db.prepare(`UPDATE projects SET ${sets} WHERE id = ?`)
+      .run(...Object.values(details), result.lastInsertRowid);
+  }
+  const project = await getProjectOr404(db, result.lastInsertRowid);
+  await syncReminders(db, project);
+  return projectJson(project);
+}
+
 function register(app, db) {
   app.get('/api/projects', async () => {
     const rows = await db.prepare('SELECT * FROM projects ORDER BY id').all();
     return rows.map(projectJson);
   });
 
-  app.post('/api/projects', async ({ body }) => {
-    const name = requireString(body, 'name');
-    const code = requireString(body, 'code');
-    let phase = 'bidding';
-    if (body.phase !== undefined) phase = requirePhase(body.phase);
-    else if (body.status !== undefined) {
-      if (!STATUS_TO_PHASE[body.status]) {
-        throw new ApiError(422, 'invalid_status', `status must be one of ${Object.keys(STATUS_TO_PHASE).join('|')}`);
-      }
-      phase = STATUS_TO_PHASE[body.status];
-    }
-    const proposal = parseMoneyField(body, 'proposalAmount');
-    const finalContract = parseMoneyField(body, 'finalContractAmount');
-    const goHardDate = body.goHardDate ? requireIsoDate(body.goHardDate, 'goHardDate') : null;
-    const dup = await db.prepare('SELECT id FROM projects WHERE code = ?').get(code);
-    if (dup) throw new ApiError(409, 'duplicate_code', `Project code ${code} already exists`);
-    const result = await db.prepare(`
-      INSERT INTO projects (name, code, status, phase, category, proposal_amount_cents,
-                            final_contract_amount_cents, go_hard_date, reminders_automated)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(name, code, PHASE_TO_STATUS[phase], phase,
-      body.category || null, proposal ?? null, finalContract ?? null,
-      goHardDate, toBool(body.remindersAutomated, true) ? 1 : 0);
-    const details = collectDetailFields(body);
-    if (Object.keys(details).length) {
-      const sets = Object.keys(details).map((k) => `${k} = ?`).join(', ');
-      await db.prepare(`UPDATE projects SET ${sets} WHERE id = ?`)
-        .run(...Object.values(details), result.lastInsertRowid);
-    }
-    const project = await getProjectOr404(db, result.lastInsertRowid);
-    await syncReminders(db, project);
-    return created(projectJson(project));
-  });
+  app.post('/api/projects', async ({ body }) => created(await createProject(db, body)));
 
   app.get('/api/projects/:id', async ({ params }) => {
     const project = await getProjectOr404(db, params.id);
@@ -284,5 +288,5 @@ function register(app, db) {
 
 module.exports = {
   register, projectJson, reminderJson, syncReminders, getProjectOr404,
-  PHASE_LABELS, effectivePhase,
+  PHASE_LABELS, effectivePhase, createProject,
 };

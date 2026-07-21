@@ -26,14 +26,14 @@ function readBody(req) {
     let size = 0;
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > 1_000_000) {
-        reject(new ApiError(413, 'payload_too_large', 'Request body exceeds 1 MB'));
+      if (size > 5_000_000) {
+        reject(new ApiError(413, 'payload_too_large', 'Request body exceeds 5 MB'));
         req.destroy();
         return;
       }
       chunks.push(chunk);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
@@ -58,20 +58,27 @@ function createApp() {
         r.keys.forEach((k, i) => { params[k] = decodeURIComponent(match[i + 1]); });
 
         let body = null;
+        let rawBody = null;
         if (method === 'POST' || method === 'PATCH' || method === 'PUT') {
-          const raw = await readBody(req);
-          if (raw.trim()) {
-            try {
-              body = JSON.parse(raw);
-            } catch {
-              throw new ApiError(400, 'invalid_json', 'Request body is not valid JSON');
+          rawBody = await readBody(req);
+          const ctype = req.headers['content-type'] || '';
+          // Binary uploads (file imports) keep rawBody only; everything else
+          // is parsed as JSON, matching the API's existing contract.
+          if (!/octet-stream|spreadsheet|excel|csv/i.test(ctype)) {
+            const text = rawBody.toString('utf8');
+            if (text.trim()) {
+              try {
+                body = JSON.parse(text);
+              } catch {
+                throw new ApiError(400, 'invalid_json', 'Request body is not valid JSON');
+              }
+            } else {
+              body = {};
             }
-          } else {
-            body = {};
           }
         }
 
-        const result = await r.handler({ req, res, params, query: url.searchParams, body });
+        const result = await r.handler({ req, res, params, query: url.searchParams, body, rawBody });
         if (res.writableEnded) return;
         if (result && result.__raw) {
           res.writeHead(result.status || 200, result.headers || {});

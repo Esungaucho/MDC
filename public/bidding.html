@@ -166,10 +166,18 @@
       <div id="np-msg" class="hidden"></div>
     </form>
     <details style="margin-top:18px">
-      <summary style="font-size:12.5px;font-weight:600;color:rgba(27,39,51,0.7);cursor:pointer">Bulk import — paste rows from a spreadsheet</summary>
+      <summary style="font-size:12.5px;font-weight:600;color:rgba(27,39,51,0.7);cursor:pointer">Bulk import — upload the Excel file or paste rows</summary>
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
-        <div class="muted">Paste rows straight from the pipeline spreadsheet (tab-separated), one project
-          per line, in this column order:<br>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <label class="btn primary" style="display:inline-block;cursor:pointer">
+            Upload Excel / CSV file…
+            <input type="file" id="import-file" accept=".xlsx,.csv,.tsv,.txt" style="display:none">
+          </label>
+          <span class="muted">Reads the first worksheet. Columns are matched by their header names, in any
+            order — Owner Name, Owner Email, Owner Phone, and Project Address are recognized and discarded.</span>
+        </div>
+        <div class="muted" style="border-top:1px solid rgba(21,42,69,0.08);padding-top:10px">Or paste rows
+          (tab-separated), one project per line, in this column order:<br>
           <strong>Project Name · Phase · Notes · Priority · Category · Account · Owner Name · Owner Email ·
           Owner Phone · Project Address · Initial Contact Date · Site Visit Date · RFI Date · Bid Due Date ·
           Proposal Submitted Date · Proposal Amount · Final Contract Amount · Proposal/Contract Notes</strong><br>
@@ -180,7 +188,7 @@
           codes are generated automatically.</div>
         <textarea id="import-text" rows="6" placeholder="Riverside Lofts&#9;Bidding&#9;&#9;High&#9;Commercial New&#9;Acme Holdings&#9;&#9;&#9;&#9;&#9;&#9;&#9;&#9;8/17/2026&#9;&#9;$700,000.00"></textarea>
         <div style="display:flex;gap:10px;align-items:center">
-          <button type="button" class="btn primary" id="import-btn">Import</button>
+          <button type="button" class="btn primary" id="import-btn">Import pasted rows</button>
           <span class="muted" id="import-status"></span>
         </div>
         <div id="import-result" class="hidden"></div>
@@ -192,7 +200,10 @@
   <section class="card" id="sched-card">
     <div class="sched-head">
       <h2>Bid Schedule &amp; Reminders</h2>
-      <span id="bidding-chip"></span>
+      <div style="display:flex;gap:12px;align-items:center">
+        <span id="bidding-chip"></span>
+        <button class="btn outline" id="delete-proj" title="Delete this project">Delete Project…</button>
+      </div>
     </div>
     <div class="sched-controls">
       <div class="field" style="width:200px">
@@ -501,6 +512,54 @@
     el.textContent = `Imported ${results.ok} project${results.ok === 1 ? '' : 's'}.`
       + (results.failed.length ? ` ${results.failed.length} failed — ${results.failed.join(' · ')}` : '');
     if (results.ok) { $('import-text').value = ''; await init(); }
+  });
+
+  // --- File upload import (.xlsx or CSV/TSV) ---
+  $('import-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    $('import-status').textContent = `Uploading ${file.name}…`;
+    const el = $('import-result');
+    try {
+      const res = await fetch('/api/import/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: file,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || res.statusText);
+      el.className = data.failed.length ? 'err' : 'success';
+      el.textContent = `Imported ${data.created} project${data.created === 1 ? '' : 's'}`
+        + (data.skipped ? `, skipped ${data.skipped} blank row${data.skipped === 1 ? '' : 's'}` : '')
+        + '.'
+        + (data.failed.length
+          ? ` ${data.failed.length} failed — ${data.failed.map((f) => `row ${f.row}${f.name ? ` "${f.name}"` : ''}: ${f.error}`).join(' · ')}`
+          : '');
+      if (data.created) await init();
+    } catch (err) {
+      el.className = 'err';
+      el.textContent = 'Import failed: ' + err.message;
+    } finally {
+      $('import-status').textContent = '';
+      e.target.value = '';
+    }
+  });
+
+  // --- Delete project (PM) ---
+  $('delete-proj').addEventListener('click', async () => {
+    if (!project) return;
+    const ok = confirm(
+      `Delete "${project.name}" (${project.code})?\n\nThis removes the project and all of its sheets, RFIs, bids, and reminders. This cannot be undone.`
+    );
+    if (!ok) return;
+    try {
+      await api('DELETE', `/api/projects/${projectId}`);
+      location.hash = '';
+      projectId = null;
+      await init();
+    } catch (err) {
+      alert('Delete failed: ' + err.message);
+    }
   });
 
   async function loadProject() {
